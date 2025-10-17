@@ -35,6 +35,41 @@ type Options struct {
 	KeepPlanArtifacts bool
 }
 
+type stackMetadata struct {
+	AbsolutePath string
+	RelativePath string
+	Prefix       string
+}
+
+type stackChangeSummary struct {
+	Stack           string   `json:"stack"`
+	Prefix          string   `json:"prefix"`
+	HasChanges      bool     `json:"has_changes"`
+	Adds            int      `json:"adds"`
+	Changes         int      `json:"changes"`
+	Destroys        int      `json:"destroys"`
+	Reason          string   `json:"reason,omitempty"`
+	Dependencies    []string `json:"dependencies"`
+	DependentStacks []string `json:"dependent_stacks"`
+}
+
+type resourceTotals struct {
+	Adds     int `json:"adds"`
+	Changes  int `json:"changes"`
+	Destroys int `json:"destroys"`
+}
+
+type superplanSummary struct {
+	GeneratedAt       time.Time                     `json:"generated_at"`
+	Environment       string                        `json:"environment"`
+	AccountID         string                        `json:"account_id,omitempty"`
+	TerraformVersion  string                        `json:"terraform_version"`
+	TotalStacks       int                           `json:"total_stacks"`
+	StacksWithChanges int                           `json:"stacks_with_changes"`
+	ResourceTotals    resourceTotals                `json:"resource_totals"`
+	Stacks            map[string]stackChangeSummary `json:"stacks"`
+}
+
 const planFileName = "superplan.tfplan"
 
 func (o *Options) applyDefaults() {
@@ -72,12 +107,46 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("error building dependency graph: %w", err)
 	}
 
+	stackInfos := make(map[string]*stackMetadata, len(stackGraph))
+	stackInfosByRel := make(map[string]*stackMetadata, len(stackGraph))
+	dependenciesByRel := make(map[string][]string)
+	dependentsByRel := make(map[string][]string)
+
 	order, err := graph.TopoSort(stackGraph)
 	if err != nil {
 		return fmt.Errorf("dependency resolution failed: %w", err)
 	}
 	if len(order) == 0 {
 		return fmt.Errorf("no stacks discovered under %s", rootAbs)
+	}
+
+	for absPath := range stackGraph {
+		rel, relErr := filepath.Rel(rootAbs, absPath)
+		if relErr != nil {
+			rel = absPath
+		}
+		rel = filepath.ToSlash(rel)
+		info := &stackMetadata{
+			AbsolutePath: absPath,
+			RelativePath: rel,
+		}
+		stackInfos[absPath] = info
+		stackInfosByRel[rel] = info
+	}
+
+	for absPath, stack := range stackGraph {
+		info := stackInfos[absPath]
+		if info == nil {
+			continue
+		}
+		for _, depAbs := range stack.Dependencies {
+			depInfo, ok := stackInfos[depAbs]
+			if !ok {
+				continue
+			}
+			dependenciesByRel[info.RelativePath] = append(dependenciesByRel[info.RelativePath], depInfo.RelativePath)
+			dependentsByRel[depInfo.RelativePath] = append(dependentsByRel[depInfo.RelativePath], info.RelativePath)
+		}
 	}
 
 	fmt.Printf("Discovered %d stacks\n", len(order))
@@ -101,6 +170,7 @@ func Run(ctx context.Context, opts Options) error {
 	mergedOutputs := make(map[string]interface{})
 	providerSources := make(map[string]string)
 	stackPrefixes := make(map[string]string)
+	prefixToStack := make(map[string]string)
 	var baseVersion int
 	var baseTFVersion string
 	var serial int
@@ -112,6 +182,11 @@ func Run(ctx context.Context, opts Options) error {
 			stackName = fmt.Sprintf("stack_%d", idx)
 		}
 		stackPrefixes[stackDir] = stackName
+
+		if info := stackInfos[stackDir]; info != nil {
+			info.Prefix = stackName
+			prefixToStack[stackName] = info.RelativePath
+		}
 
 		displayName, err := filepath.Rel(rootAbs, stackDir)
 		if err != nil {
@@ -203,6 +278,11 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("unable to create output directory %s: %w", superplanDir, err)
 	}
 
+	mergedDir := filepath.Join(superplanDir, "merged")
+	if err := os.MkdirAll(mergedDir, 0o755); err != nil {
+		return fmt.Errorf("unable to create merged configuration directory %s: %w", mergedDir, err)
+	}
+
 	stateDocument := map[string]interface{}{
 		"version":           baseVersion,
 		"terraform_version": baseTFVersion,
@@ -212,13 +292,13 @@ func Run(ctx context.Context, opts Options) error {
 		"resources":         mergedResources,
 	}
 
-	statePath := filepath.Join(superplanDir, "superstate.tfstate")
+	statePath := filepath.Join(superplanDir, "superstate.json")
 	if err := writeJSON(statePath, stateDocument); err != nil {
 		return fmt.Errorf("failed to write combined state: %w", err)
 	}
 	fmt.Printf("[✓] Merged %d stack states into %s\n", stacksProcessed, statePath)
 
-	configProviderRequirements, err := writeCombinedConfiguration(order, stackPrefixes, rootAbs, superplanDir)
+	configProviderRequirements, err := writeCombinedConfiguration(order, stackPrefixes, rootAbs, mergedDir)
 	if err != nil {
 		return fmt.Errorf("failed to build combined configuration: %w", err)
 	}
@@ -228,55 +308,88 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("failed to collect variable values: %w", err)
 	}
 
-	varFilePath := filepath.Join(superplanDir, "variables.auto.tfvars")
+	varFilePath := filepath.Join(mergedDir, "variables.auto.tfvars")
 	if err := writeTFVarsFile(varFilePath, variableValues); err != nil {
 		return fmt.Errorf("failed to write variables file: %w", err)
 	}
 	fmt.Printf("[✓] Wrote %d variable values from %d sources to %s\n", len(variableValues), sourcesUsed, varFilePath)
 
-	if err := ensureLocalBackend(superplanDir, providerSources, configProviderRequirements); err != nil {
+	if err := ensureLocalBackend(mergedDir, providerSources, configProviderRequirements); err != nil {
 		return fmt.Errorf("failed to prepare superplan configuration: %w", err)
 	}
 
-	superplanTF, err := tfexec.NewTerraform(superplanDir, opts.TerraformPath)
+	superplanTF, err := tfexec.NewTerraform(mergedDir, opts.TerraformPath)
 	if err != nil {
 		return fmt.Errorf("error creating terraform executor for superplan: %w", err)
 	}
 
-	if err := superplanTF.Init(ctx, tfexec.BackendConfig("path=terraform.tfstate")); err != nil {
+	if err := superplanTF.Init(ctx, tfexec.Backend(false)); err != nil {
 		return fmt.Errorf("terraform init failed in superplan directory: %w", err)
 	}
-	fmt.Printf("[✓] Initialized local backend in %s\n", superplanDir)
+	fmt.Printf("[✓] Initialized local backend in %s\n", mergedDir)
 
-	if err := patchModuleResourceLifecycle(superplanDir); err != nil {
+	if err := patchModuleResourceLifecycle(mergedDir); err != nil {
 		return fmt.Errorf("failed to apply lifecycle ignore to modules: %w", err)
 	}
 
+	planPath := filepath.Join(superplanDir, planFileName)
+	planOutRel, err := filepath.Rel(mergedDir, planPath)
+	if err != nil {
+		return fmt.Errorf("resolve plan output path: %w", err)
+	}
+	stateRel, err := filepath.Rel(mergedDir, statePath)
+	if err != nil {
+		return fmt.Errorf("resolve state path: %w", err)
+	}
+
+	superplanTF.SetEnv(map[string]string{
+		"TF_CLI_ARGS_plan": "-input=false",
+		"TF_INPUT":         "false",
+	})
+	defer superplanTF.SetEnv(nil)
+
 	planHasChanges, err := superplanTF.Plan(ctx,
-		tfexec.Out(planFileName),
-		tfexec.State("superstate.tfstate"),
+		tfexec.Out(planOutRel),
+		tfexec.State(stateRel),
 		tfexec.Refresh(false),
 	)
 	if err != nil {
 		return fmt.Errorf("terraform plan failed: %w", err)
 	}
+	superplanTF.SetEnv(nil)
 
 	fmt.Printf("[✓] Generated unified plan (%s)\n", planFileName)
+	if !planHasChanges {
+		fmt.Println("[i] Terraform reported no changes; summary will reflect zero-diff plan")
+	}
 
-	planText, err := superplanTF.ShowPlanFileRaw(ctx, planFileName)
+	plan, err := superplanTF.ShowPlanFile(ctx, planPath)
 	if err != nil {
 		return fmt.Errorf("terraform show plan failed: %w", err)
 	}
 
-	fmt.Println(planText)
+	summary := buildSuperplanSummary(plan, summaryContext{
+		StackInfos:        stackInfosByRel,
+		DependenciesByRel: dependenciesByRel,
+		DependentsByRel:   dependentsByRel,
+		PrefixToStack:     prefixToStack,
+		Environment:       opts.Environment,
+		AccountID:         opts.AccountID,
+		TerraformVersion:  deriveTerraformVersion(opts.TerraformVersion, plan),
+		GeneratedAt:       time.Now().UTC(),
+	})
 
-	if err := reportPlanSummary(ctx, superplanTF, planHasChanges); err != nil {
-		return fmt.Errorf("failed to summarize plan: %w", err)
+	summaryPath := filepath.Join(superplanDir, "superplan-summary.json")
+	if err := writeJSON(summaryPath, summary); err != nil {
+		return fmt.Errorf("write superplan summary: %w", err)
 	}
 
-	if err := cleanupPlanArtifacts(superplanDir, planFileName, opts.KeepPlanArtifacts); err != nil {
+	fmt.Printf("✅ Superplan complete: %d stacks analyzed, %d with changes\n", summary.TotalStacks, summary.StacksWithChanges)
+
+	if err := cleanupSuperplanArtifacts(mergedDir, planPath, opts.KeepPlanArtifacts); err != nil {
 		return fmt.Errorf("cleanup superplan artifacts: %w", err)
 	}
+
 	return nil
 }
 
@@ -1907,7 +2020,7 @@ func splitConstraints(raw string) []string {
 	return constraints
 }
 
-func writeCombinedConfiguration(stacks []string, prefixes map[string]string, rootAbs, superplanDir string) (providerRequirements, error) {
+func writeCombinedConfiguration(stacks []string, prefixes map[string]string, rootAbs, mergedDir string) (providerRequirements, error) {
 	if len(stacks) == 0 {
 		return nil, fmt.Errorf("no stacks to render")
 	}
@@ -1961,7 +2074,7 @@ func writeCombinedConfiguration(stacks []string, prefixes map[string]string, roo
 		return requiredProviders, fmt.Errorf("no Terraform configuration generated")
 	}
 
-	configPath := filepath.Join(superplanDir, "super.tf")
+	configPath := filepath.Join(mergedDir, "super.tf")
 	if err := os.WriteFile(configPath, []byte(builder.String()), 0o644); err != nil {
 		return requiredProviders, err
 	}
@@ -2651,29 +2764,16 @@ func patchModuleResourceLifecycle(superplanDir string) error {
 	return nil
 }
 
-func cleanupPlanArtifacts(dir, planFile string, keep bool) error {
+func cleanupSuperplanArtifacts(mergedDir, planPath string, keep bool) error {
 	if keep {
 		return nil
 	}
-
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
+	if err := os.RemoveAll(mergedDir); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove merged configuration: %w", err)
 	}
-
-	for _, entry := range entries {
-		if entry.Name() == planFile {
-			continue
-		}
-		path := filepath.Join(dir, entry.Name())
-		if err := os.RemoveAll(path); err != nil {
-			return fmt.Errorf("remove %s: %w", path, err)
-		}
+	if err := os.Remove(planPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove plan file: %w", err)
 	}
-
 	return nil
 }
 
@@ -2722,39 +2822,164 @@ func ensureLocalBackend(dir string, stateProviders map[string]string, configProv
 	return os.WriteFile(mainTFPath, file.Bytes(), 0o644)
 }
 
-func reportPlanSummary(ctx context.Context, tf *tfexec.Terraform, planHasChanges bool) error {
-	plan, err := tf.ShowPlanFile(ctx, planFileName)
-	if err != nil {
-		if !planHasChanges {
-			fmt.Println("[i] No changes detected in plan")
-			return nil
+type summaryContext struct {
+	StackInfos        map[string]*stackMetadata
+	DependenciesByRel map[string][]string
+	DependentsByRel   map[string][]string
+	PrefixToStack     map[string]string
+	Environment       string
+	AccountID         string
+	TerraformVersion  string
+	GeneratedAt       time.Time
+}
+
+func buildSuperplanSummary(plan *tfjson.Plan, ctx summaryContext) superplanSummary {
+	if plan == nil {
+		plan = &tfjson.Plan{}
+	}
+
+	stackSummaries := make(map[string]stackChangeSummary, len(ctx.StackInfos))
+	for rel, info := range ctx.StackInfos {
+		deps := uniqueSortedStrings(append([]string(nil), ctx.DependenciesByRel[rel]...))
+		dependents := uniqueSortedStrings(append([]string(nil), ctx.DependentsByRel[rel]...))
+
+		stackSummaries[rel] = stackChangeSummary{
+			Stack:           rel,
+			Prefix:          info.Prefix,
+			Dependencies:    deps,
+			DependentStacks: dependents,
 		}
-		return err
 	}
 
-	var add, change, destroy int
-	if plan != nil {
-		for _, rc := range plan.ResourceChanges {
-			if rc.Change == nil {
-				continue
+	totals := resourceTotals{}
+	for _, rc := range plan.ResourceChanges {
+		if rc.Change == nil {
+			continue
+		}
+		stackRel := identifyStackFromAddress(rc.Address, ctx.PrefixToStack)
+		if stackRel == "" {
+			continue
+		}
+		summary := stackSummaries[stackRel]
+		for _, action := range rc.Change.Actions {
+			switch action {
+			case tfjson.ActionCreate:
+				summary.Adds++
+				totals.Adds++
+			case tfjson.ActionUpdate:
+				summary.Changes++
+				totals.Changes++
+			case tfjson.ActionDelete:
+				summary.Destroys++
+				totals.Destroys++
 			}
-			for _, action := range rc.Change.Actions {
-				switch action {
-				case tfjson.ActionCreate:
-					add++
-				case tfjson.ActionUpdate:
-					change++
-				case tfjson.ActionDelete:
-					destroy++
-				}
+		}
+		if summary.Adds+summary.Changes+summary.Destroys > 0 {
+			summary.HasChanges = true
+			summary.Reason = "direct"
+		}
+		stackSummaries[stackRel] = summary
+	}
+
+	changedStacks := make(map[string]struct{})
+	for rel, summary := range stackSummaries {
+		if summary.HasChanges {
+			changedStacks[rel] = struct{}{}
+			continue
+		}
+		for _, dep := range summary.Dependencies {
+			if _, ok := changedStacks[dep]; ok {
+				summary.Reason = "dependency"
+				stackSummaries[rel] = summary
+				break
 			}
 		}
 	}
 
-	fmt.Printf("Plan summary: %d to add, %d to change, %d to destroy\n", add, change, destroy)
-	if !planHasChanges {
-		fmt.Println("[i] Infrastructure already matches the combined state")
+	stackCount := len(stackSummaries)
+	stacksWithChanges := 0
+	for rel, summary := range stackSummaries {
+		if summary.HasChanges {
+			stacksWithChanges++
+		}
+		// ensure prefix populated even if not set earlier
+		if summary.Prefix == "" {
+			if info := ctx.StackInfos[rel]; info != nil {
+				summary.Prefix = info.Prefix
+				stackSummaries[rel] = summary
+			}
+		}
 	}
 
-	return nil
+	return superplanSummary{
+		GeneratedAt:       ctx.GeneratedAt,
+		Environment:       ctx.Environment,
+		AccountID:         ctx.AccountID,
+		TerraformVersion:  ctx.TerraformVersion,
+		TotalStacks:       stackCount,
+		StacksWithChanges: stacksWithChanges,
+		ResourceTotals:    totals,
+		Stacks:            stackSummaries,
+	}
+}
+
+func identifyStackFromAddress(address string, prefixToStack map[string]string) string {
+	if address == "" {
+		return ""
+	}
+	parts := splitAddressTokens(address)
+	for _, part := range parts {
+		for prefix, stack := range prefixToStack {
+			if strings.HasPrefix(part, prefix+"_") || part == prefix {
+				return stack
+			}
+		}
+	}
+	return ""
+}
+
+func splitAddressTokens(address string) []string {
+	var tokens []string
+	current := strings.Builder{}
+	for _, r := range address {
+		switch r {
+		case '.', '[', ']', '"':
+			if current.Len() > 0 {
+				tokens = append(tokens, current.String())
+				current.Reset()
+			}
+		default:
+			current.WriteRune(r)
+		}
+	}
+	if current.Len() > 0 {
+		tokens = append(tokens, current.String())
+	}
+	return tokens
+}
+
+func deriveTerraformVersion(explicit string, plan *tfjson.Plan) string {
+	if explicit != "" {
+		return explicit
+	}
+	if plan != nil && plan.TerraformVersion != "" {
+		return plan.TerraformVersion
+	}
+	return "unknown"
+}
+
+func uniqueSortedStrings(items []string) []string {
+	if len(items) == 0 {
+		return []string{}
+	}
+	sort.Strings(items)
+	result := make([]string, 0, len(items))
+	var last string
+	for i, item := range items {
+		if i == 0 || item != last {
+			result = append(result, item)
+			last = item
+		}
+	}
+	return result
 }
