@@ -1,0 +1,92 @@
+name: Build
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+
+      - name: Set up Go
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6
+        with:
+          go-version: '1.24'
+
+      - name: Run tests
+        run: make test
+
+      - name: Define LDFLAGS and version
+        id: ldflags
+        env:
+            MAIN_PUSH: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
+        run: |
+          set -e
+          if [[ "$MAIN_PUSH" == "true" ]]; then
+            LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+            IFS='.' read -r MAJOR MINOR PATCH <<< "${LAST_TAG#v}"
+            PATCH=$((PATCH + 1))
+            VERSION="v$MAJOR.$MINOR.$PATCH"
+            echo "Predicted next version: $VERSION"
+          else
+            VERSION=$(git rev-parse --short=8 HEAD)
+          fi
+          echo "Using tag: $VERSION"
+          echo "LDFLAGS=-X 'terraform-wrapper/cmd/terraform-wrapper/commands.wrapperVersion=${VERSION}'" >> "$GITHUB_ENV"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Build binaries
+        run: |
+          mkdir -p dist
+          echo "Building with LDFLAGS: $LDFLAGS"
+          GOOS=linux GOARCH=amd64 make build BINDIR=dist VERSION=$VERSION
+          GOOS=darwin GOARCH=arm64 make build BINDIR=dist VERSION=$VERSION
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        with:
+          name: binaries
+          path: dist/
+
+  bump:
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+        with:
+          fetch-depth: 0
+
+      - name: Get latest tag
+        id: get_tag
+        run: |
+          TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          echo "Latest tag: $TAG"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Bump version (patch)
+        id: bump_version
+        run: |
+          OLD_TAG=${{ steps.get_tag.outputs.tag }}
+          IFS='.' read -r MAJOR MINOR PATCH <<< "${OLD_TAG#v}"
+          PATCH=$((PATCH + 1))
+          NEW_TAG="v$MAJOR.$MINOR.$PATCH"
+          echo "New tag: $NEW_TAG"
+          echo "new_tag=$NEW_TAG" >> $GITHUB_OUTPUT
+
+      - name: Create and push new tag
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git tag ${{ steps.bump_version.outputs.new_tag }}
+          git push origin ${{ steps.bump_version.outputs.new_tag }}
