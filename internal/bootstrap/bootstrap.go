@@ -3,11 +3,14 @@ package bootstrap
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/hashicorp/terraform-exec/tfexec"
 	"terraform-wrapper/internal/awsaccount"
 	"terraform-wrapper/internal/stacks"
@@ -43,12 +46,17 @@ func Run(ctx context.Context, opts Options) error {
 		opts.AccountID = account
 	}
 
-	stateStack := filepath.Join(opts.RootDir, "core-services", "state-file")
+	rootAbs, err := filepath.Abs(opts.RootDir)
+	if err != nil {
+		return fmt.Errorf("resolve root directory: %w", err)
+	}
+
+	stateStack := filepath.Join(rootAbs, "core-services", "bootstrap")
 	backendPath := filepath.Join(stateStack, "backend.tf")
 	disabledBackendPath := backendPath + ".disabled"
 
 	if _, err := os.Stat(stateStack); err != nil {
-		return fmt.Errorf("state-file stack not found at %s: %w", stateStack, err)
+		return fmt.Errorf("bootstrap stack not found at %s: %w", stateStack, err)
 	}
 
 	if _, err := os.Stat(backendPath); err != nil {
@@ -85,11 +93,11 @@ func Run(ctx context.Context, opts Options) error {
 
 	fmt.Println("[bootstrap] Running local apply for backend creation")
 
-	if err := tf.Init(ctx, tfexec.BackendConfig("path=terraform.tfstate")); err != nil {
+	if err := tf.Init(ctx, tfexec.Backend(false)); err != nil {
 		return fmt.Errorf("local init failed: %w", err)
 	}
 
-	varFiles := stacks.VarFiles(opts.RootDir, stateStack, opts.Environment)
+	varFiles := stacks.VarFiles(rootAbs, stateStack, opts.Environment)
 
 	applyOpts := make([]tfexec.ApplyOption, 0, len(varFiles))
 	for _, vf := range varFiles {
@@ -104,7 +112,7 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	tf.SetEnv(nil)
 
-	bucketName, tableName := deriveBackendNames(opts)
+	bucketName := deriveBackendNames(opts)
 
 	if outputs, err := tf.Output(ctx); err == nil {
 		if val, ok := extractStringOutput(outputs, "state_bucket_name"); ok {
@@ -113,16 +121,15 @@ func Run(ctx context.Context, opts Options) error {
 		if val, ok := extractStringOutput(outputs, "state_bucket_id"); ok {
 			bucketName = val
 		}
-		if val, ok := extractStringOutput(outputs, "state_lock_table_name"); ok {
-			tableName = val
-		}
-		if val, ok := extractStringOutput(outputs, "state_dynamodb_table_name"); ok {
-			tableName = val
-		}
 	}
 
+	fmt.Printf("[bootstrap] Waiting for S3 bucket %s to become available...\n", bucketName)
+	if err := waitForS3Bucket(ctx, bucketName, opts.Region); err != nil {
+		return fmt.Errorf("wait for S3 bucket %s: %w", bucketName, err)
+	}
+	fmt.Printf("[bootstrap] Bucket %s is ready\n", bucketName)
+
 	fmt.Printf("[bootstrap] Created S3 bucket: %s\n", bucketName)
-	fmt.Printf("[bootstrap] Created DynamoDB table: %s\n", tableName)
 
 	if err := os.Rename(disabledBackendPath, backendPath); err != nil {
 		return fmt.Errorf("failed to restore backend: %w", err)
@@ -130,45 +137,35 @@ func Run(ctx context.Context, opts Options) error {
 	restored = true
 
 	backendConfig := map[string]string{
-		"bucket":         bucketName,
-		"key":            fmt.Sprintf("%s/state-file/terraform.tfstate", opts.Environment),
-		"region":         opts.Region,
-		"dynamodb_table": tableName,
-		"encrypt":        "true",
-		"use_lockfile":   "true",
+		"bucket":       bucketName,
+		"key":          fmt.Sprintf("%s/bootstrap/terraform.tfstate", opts.Environment),
+		"region":       opts.Region,
+		"encrypt":      "true",
+		"use_lockfile": "true",
 	}
 
 	var initOpts []tfexec.InitOption
 	for k, v := range backendConfig {
 		initOpts = append(initOpts, tfexec.BackendConfig(fmt.Sprintf("%s=%s", k, v)))
 	}
+	initOpts = append(initOpts, tfexec.ForceCopy(true))
 
 	fmt.Println("[bootstrap] Migrating local state to remote backend...")
 
-	tf.SetEnv(map[string]string{
-		"TF_CLI_ARGS_init": "-migrate-state",
-	})
 	if err := tf.Init(ctx, initOpts...); err != nil {
-		tf.SetEnv(nil)
 		fmt.Fprintf(os.Stderr, "[bootstrap] migration failed: %v\n", err)
 		fmt.Fprintf(os.Stderr, "[bootstrap] local state remains at %s\n", filepath.Join(stateStack, "terraform.tfstate"))
 		return fmt.Errorf("state migration failed: %w", err)
 	}
-	tf.SetEnv(nil)
 
 	fmt.Println("[bootstrap] Backend bootstrapped")
-
-	if err := runOIDC(ctx, opts); err != nil {
-		return err
-	}
 
 	return nil
 }
 
-func deriveBackendNames(opts Options) (string, string) {
-	bucket := fmt.Sprintf("%s-%s-terraform-state", opts.AccountID, opts.Region)
-	table := fmt.Sprintf("%s-%s-state-locks", opts.Environment, opts.Region)
-	return bucket, table
+func deriveBackendNames(opts Options) string {
+	bucket := fmt.Sprintf("%s-%s-state", opts.AccountID, opts.Region)
+	return bucket
 }
 
 func extractStringOutput(outputs map[string]tfexec.OutputMeta, key string) (string, bool) {
@@ -183,33 +180,42 @@ func extractStringOutput(outputs map[string]tfexec.OutputMeta, key string) (stri
 	return value, true
 }
 
-func runOIDC(ctx context.Context, opts Options) error {
-	oidcDir := filepath.Join(opts.RootDir, "core-services", "oidc")
-	if info, err := os.Stat(oidcDir); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
+func waitForS3Bucket(ctx context.Context, bucket, region string) error {
+	if bucket == "" {
+		return fmt.Errorf("bucket name is empty")
+	}
+	if region == "" {
+		region = "eu-west-2"
+	}
+
+	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
+	if err != nil {
+		return fmt.Errorf("load AWS config: %w", err)
+	}
+
+	client := s3.NewFromConfig(cfg)
+	timeoutCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	var lastErr error
+	for {
+		callCtx, callCancel := context.WithTimeout(timeoutCtx, 10*time.Second)
+		_, err := client.HeadBucket(callCtx, &s3.HeadBucketInput{Bucket: aws.String(bucket)})
+		callCancel()
+		if err == nil {
 			return nil
 		}
-		return fmt.Errorf("failed to stat oidc stack: %w", err)
-	} else if !info.IsDir() {
-		return fmt.Errorf("oidc path %s is not a directory", oidcDir)
+		lastErr = err
+		select {
+		case <-timeoutCtx.Done():
+			if lastErr != nil {
+				return fmt.Errorf("timeout waiting for bucket %s: %w (last error: %v)", bucket, timeoutCtx.Err(), lastErr)
+			}
+			return fmt.Errorf("timeout waiting for bucket %s: %w", bucket, timeoutCtx.Err())
+		case <-ticker.C:
+		}
 	}
-
-	fmt.Println("[bootstrap] Running oidc stack apply")
-
-	runner, err := stacks.NewRunner(ctx, stacks.RunnerOptions{
-		RootDir:       opts.RootDir,
-		Environment:   opts.Environment,
-		AccountID:     opts.AccountID,
-		Region:        opts.Region,
-		TerraformPath: opts.TerraformPath,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create runner for oidc: %w", err)
-	}
-
-	if err := runner.Apply(ctx, oidcDir); err != nil {
-		return fmt.Errorf("oidc apply failed: %w", err)
-	}
-
-	return nil
 }

@@ -43,12 +43,8 @@ func newBootstrapCommand() *cobra.Command {
 
 func defaultBootstrapStacks() []string {
 	var paths []string
-	statePath := filepath.Join(rootDir, "core-services", "state-file")
-	if abs, err := filepath.Abs(statePath); err == nil {
-		paths = append(paths, abs)
-	}
-	oidcPath := filepath.Join(rootDir, "core-services", "oidc")
-	if abs, err := filepath.Abs(oidcPath); err == nil {
+	bootstrapPath := filepath.Join(rootDir, "core-services", "bootstrap")
+	if abs, err := filepath.Abs(bootstrapPath); err == nil {
 		paths = append(paths, abs)
 	}
 	if len(paths) == 0 {
