@@ -4,7 +4,7 @@
 
 ## Key Capabilities
 
-- **Hybrid Terraform version management** – inspects every stack’s `terraform.required_version`, prefers a compatible system binary, and installs a matching version on demand while writing a `.terraform-version.lock.json`.
+- **Terraform version management** – inspects every stack’s `terraform.required_version`, prefers a compatible system binary, and installs a matching version on demand while writing a `.terraform-version.lock.json`.
 - **Dependency-aware execution** – models stacks through `dependencies.json` files and runs plans/applies/destroys respecting topological order.
 - **Parallel orchestration** – processes independent stacks concurrently with consistent logging and progress feedback.
 - **Superplan generation** – pulls state for every stack, rewrites resources (omitting tag noise), emits an aggregated plan, and records a JSON summary of stack-level changes.
