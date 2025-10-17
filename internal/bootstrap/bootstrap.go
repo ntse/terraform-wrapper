@@ -148,19 +148,15 @@ func Run(ctx context.Context, opts Options) error {
 	for k, v := range backendConfig {
 		initOpts = append(initOpts, tfexec.BackendConfig(fmt.Sprintf("%s=%s", k, v)))
 	}
+	initOpts = append(initOpts, tfexec.ForceCopy(true))
 
 	fmt.Println("[bootstrap] Migrating local state to remote backend...")
 
-	tf.SetEnv(map[string]string{
-		"TF_CLI_ARGS_init": "-migrate-state -force-copy",
-	})
 	if err := tf.Init(ctx, initOpts...); err != nil {
-		tf.SetEnv(nil)
 		fmt.Fprintf(os.Stderr, "[bootstrap] migration failed: %v\n", err)
 		fmt.Fprintf(os.Stderr, "[bootstrap] local state remains at %s\n", filepath.Join(stateStack, "terraform.tfstate"))
 		return fmt.Errorf("state migration failed: %w", err)
 	}
-	tf.SetEnv(nil)
 
 	fmt.Println("[bootstrap] Backend bootstrapped")
 
