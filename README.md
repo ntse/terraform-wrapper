@@ -7,7 +7,7 @@
 - **Hybrid Terraform version management** – inspects every stack’s `terraform.required_version`, prefers a compatible system binary, and installs a matching version on demand while writing a `.terraform-version.lock.json`.
 - **Dependency-aware execution** – models stacks through `dependencies.json` files and runs plans/applies/destroys respecting topological order.
 - **Parallel orchestration** – processes independent stacks concurrently with consistent logging and progress feedback.
-- **Superplan generation** – pulls state for every stack, rewrites resources (omitting tag noise), and emits an aggregated plan for environment-wide change review.
+- **Superplan generation** – pulls state for every stack, rewrites resources (omitting tag noise), emits an aggregated plan, and records a JSON summary of stack-level changes.
 - **S3-based orchestration locks** – uses object-lock semantics to prevent overlapping environment operations.
 
 ## Requirements
@@ -48,7 +48,7 @@ Common commands:
 | `terraform-wrapper init --stack=<path>` | Initialise a specific stack.                      |
 | `terraform-wrapper plan --stack=<path>` | Run an individual stack plan.                     |
 | `terraform-wrapper apply --stack=<path>` | Apply a stack with auto-approval configured.      |
-| `terraform-wrapper plan-all`  | Generate the dependency-aware superplan.                 |
+| `terraform-wrapper plan-all`  | Generate the dependency-aware superplan and summary.     |
 | `terraform-wrapper apply-all` | Apply every stack in dependency order.                   |
 
 ### Terraform Version Resolution
@@ -70,6 +70,14 @@ terraform-wrapper plan --stack core-services/network --refresh=false
 ```
 
 The flag also applies to `plan-all` and cached plan generation.
+
+### Superplan Output
+
+Running `plan-all` writes artefacts to the `superplan/` directory:
+
+- `superplan/merged/`: generated configuration used for the local run
+- `superplan/superstate.json`: merged state snapshot supplied to Terraform
+- `superplan/superplan-summary.json`: per-stack change breakdown and dependency summary
 
 ## Stack Layout Requirements
 

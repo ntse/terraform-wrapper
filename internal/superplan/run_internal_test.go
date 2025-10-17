@@ -6,9 +6,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclwrite"
+	tfjson "github.com/hashicorp/terraform-json"
 )
 
 func TestPrefixResourcesAndOutputs(t *testing.T) {
@@ -258,6 +260,108 @@ func TestStripTagAttributesFromState(t *testing.T) {
 	}
 	if afterSensitive["other"] != "value" {
 		t.Fatalf("non-tag sensitive attribute modified: %#v", afterSensitive["other"])
+	}
+}
+
+func TestIdentifyStackFromAddress(t *testing.T) {
+	prefixToStack := map[string]string{
+		"core_network":  "core/network",
+		"app_frontend":  "applications/frontend",
+		"shared_module": "shared/module",
+	}
+
+	tests := []struct {
+		address string
+		expect  string
+	}{
+		{"aws_s3_bucket.core_network_bucket", "core/network"},
+		{"module.app_frontend_ui.aws_lambda_function.app_frontend_fn", "applications/frontend"},
+		{"module.shared_module_root.module.shared_module_child.aws_iam_role.shared_module_role", "shared/module"},
+		{"random_resource.other", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.address, func(t *testing.T) {
+			got := identifyStackFromAddress(tt.address, prefixToStack)
+			if got != tt.expect {
+				t.Fatalf("expected %q, got %q", tt.expect, got)
+			}
+		})
+	}
+}
+
+func TestBuildSuperplanSummary(t *testing.T) {
+	now := time.Now().UTC()
+	ctx := summaryContext{
+		StackInfos: map[string]*stackMetadata{
+			"core/network": {
+				RelativePath: "core/network",
+				Prefix:       "core_network",
+			},
+			"applications/frontend": {
+				RelativePath: "applications/frontend",
+				Prefix:       "app_frontend",
+			},
+		},
+		DependenciesByRel: map[string][]string{
+			"applications/frontend": {"core/network"},
+		},
+		DependentsByRel: map[string][]string{
+			"core/network": {"applications/frontend"},
+		},
+		PrefixToStack: map[string]string{
+			"core_network": "core/network",
+			"app_frontend": "applications/frontend",
+		},
+		Environment:      "staging",
+		AccountID:        "123456789012",
+		TerraformVersion: "1.6.0",
+		GeneratedAt:      now,
+	}
+
+	plan := &tfjson.Plan{
+		ResourceChanges: []*tfjson.ResourceChange{
+			{
+				Address: "aws_s3_bucket.core_network_bucket",
+				Change: &tfjson.Change{
+					Actions: []tfjson.Action{tfjson.ActionCreate},
+				},
+			},
+		},
+	}
+
+	summary := buildSuperplanSummary(plan, ctx)
+
+	if summary.TotalStacks != 2 {
+		t.Fatalf("expected 2 stacks, got %d", summary.TotalStacks)
+	}
+	if summary.StacksWithChanges != 1 {
+		t.Fatalf("expected 1 stack with changes, got %d", summary.StacksWithChanges)
+	}
+	if summary.ResourceTotals.Adds != 1 || summary.ResourceTotals.Changes != 0 || summary.ResourceTotals.Destroys != 0 {
+		t.Fatalf("unexpected resource totals: %+v", summary.ResourceTotals)
+	}
+
+	coreSummary, ok := summary.Stacks["core/network"]
+	if !ok {
+		t.Fatalf("core/network summary missing: %+v", summary.Stacks)
+	}
+	if !coreSummary.HasChanges || coreSummary.Reason != "direct" {
+		t.Fatalf("expected direct changes for core/network, got %+v", coreSummary)
+	}
+
+	appSummary, ok := summary.Stacks["applications/frontend"]
+	if !ok {
+		t.Fatalf("applications/frontend summary missing")
+	}
+	if appSummary.Reason != "dependency" {
+		t.Fatalf("expected dependency reason for applications/frontend, got %+v", appSummary)
+	}
+	if len(appSummary.DependentStacks) != 0 {
+		t.Fatalf("frontend should have no dependents, got %+v", appSummary.DependentStacks)
+	}
+	if len(appSummary.Dependencies) != 1 || appSummary.Dependencies[0] != "core/network" {
+		t.Fatalf("unexpected dependencies for frontend: %+v", appSummary.Dependencies)
 	}
 }
 
@@ -542,46 +646,49 @@ resource "aws_iam_role_policy_attachment" "skip" {
 	}
 }
 
-func TestCleanupPlanArtifacts(t *testing.T) {
+func TestCleanupSuperplanArtifacts(t *testing.T) {
 	dir := t.TempDir()
+	mergedDir := filepath.Join(dir, "merged")
+	if err := os.MkdirAll(mergedDir, 0o755); err != nil {
+		t.Fatalf("mkdir merged: %v", err)
+	}
 	planPath := filepath.Join(dir, planFileName)
 	if err := os.WriteFile(planPath, []byte("plan"), 0o644); err != nil {
 		t.Fatalf("write plan: %v", err)
 	}
-	otherPath := filepath.Join(dir, "super.tf")
-	if err := os.WriteFile(otherPath, []byte("content"), 0o644); err != nil {
-		t.Fatalf("write other: %v", err)
-	}
-	nestedDir := filepath.Join(dir, ".terraform")
-	if err := os.MkdirAll(nestedDir, 0o755); err != nil {
-		t.Fatalf("mkdir nested: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(nestedDir, "file"), []byte("x"), 0o644); err != nil {
-		t.Fatalf("write nested file: %v", err)
+	summaryPath := filepath.Join(dir, "superplan-summary.json")
+	if err := os.WriteFile(summaryPath, []byte("{}"), 0o644); err != nil {
+		t.Fatalf("write summary: %v", err)
 	}
 
-	if err := cleanupPlanArtifacts(dir, planFileName, false); err != nil {
-		t.Fatalf("cleanupPlanArtifacts: %v", err)
+	if err := cleanupSuperplanArtifacts(mergedDir, planPath, false); err != nil {
+		t.Fatalf("cleanupSuperplanArtifacts: %v", err)
 	}
 
-	if _, err := os.Stat(planPath); err != nil {
-		t.Fatalf("plan removed unexpectedly: %v", err)
+	if _, err := os.Stat(mergedDir); !os.IsNotExist(err) {
+		t.Fatalf("merged directory should be removed, got err=%v", err)
 	}
-	if _, err := os.Stat(otherPath); !os.IsNotExist(err) {
-		t.Fatalf("other artifact not removed: %v", err)
+	if _, err := os.Stat(planPath); !os.IsNotExist(err) {
+		t.Fatalf("plan file should be removed, got err=%v", err)
 	}
-	if _, err := os.Stat(nestedDir); !os.IsNotExist(err) {
-		t.Fatalf("nested dir not removed: %v", err)
+	if _, err := os.Stat(summaryPath); err != nil {
+		t.Fatalf("summary should remain: %v", err)
 	}
 
-	// recreate and verify keep flag preserves artifacts
-	if err := os.WriteFile(otherPath, []byte("content"), 0o644); err != nil {
-		t.Fatalf("rewrite other: %v", err)
+	if err := os.MkdirAll(mergedDir, 0o755); err != nil {
+		t.Fatalf("recreate merged: %v", err)
 	}
-	if err := cleanupPlanArtifacts(dir, planFileName, true); err != nil {
+	if err := os.WriteFile(planPath, []byte("plan"), 0o644); err != nil {
+		t.Fatalf("rewrite plan: %v", err)
+	}
+
+	if err := cleanupSuperplanArtifacts(mergedDir, planPath, true); err != nil {
 		t.Fatalf("cleanup with keep: %v", err)
 	}
-	if _, err := os.Stat(otherPath); err != nil {
-		t.Fatalf("artifact unexpectedly removed when keep=true: %v", err)
+	if _, err := os.Stat(mergedDir); err != nil {
+		t.Fatalf("merged directory removed when keep=true: %v", err)
+	}
+	if _, err := os.Stat(planPath); err != nil {
+		t.Fatalf("plan file removed when keep=true: %v", err)
 	}
 }
