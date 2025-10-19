@@ -178,11 +178,12 @@ func (e *executor) runLayer(layer []string, op Operation) (Summary, error) {
 	summary := Summary{Failed: make(map[string]error)}
 
 	for _, stackPath := range layer {
+		// looks like an error, not an error! shadow loop variable so each goroutine gets its own copy.
 		stackPath := stackPath
 		rel := e.relNames[stackPath]
 		stack := e.graph[stackPath]
 		wg.Add(1)
-		go func() {
+		go func(rel string, stack *graph.Stack) {
 			defer wg.Done()
 			select {
 			case sem <- struct{}{}:
@@ -217,7 +218,7 @@ func (e *executor) runLayer(layer []string, op Operation) (Summary, error) {
 				e.progress.Succeed(rel)
 				summary.Executed++
 			}
-		}()
+		}(rel, stack)
 	}
 
 	wg.Wait()

@@ -13,15 +13,16 @@ import (
 	"time"
 	"unicode"
 
+	"terraform-wrapper/internal/awsaccount"
+	"terraform-wrapper/internal/graph"
+	"terraform-wrapper/internal/stacks"
+
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
-	"terraform-wrapper/internal/awsaccount"
-	"terraform-wrapper/internal/graph"
-	"terraform-wrapper/internal/stacks"
 )
 
 type Options struct {
@@ -384,7 +385,7 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("write superplan summary: %w", err)
 	}
 
-	fmt.Printf("✅ Superplan complete: %d stacks analyzed, %d with changes\n", summary.TotalStacks, summary.StacksWithChanges)
+	fmt.Printf("[✓] Superplan complete: %d stacks analyzed, %d with changes\n", summary.TotalStacks, summary.StacksWithChanges)
 
 	if err := cleanupSuperplanArtifacts(mergedDir, planPath, opts.KeepPlanArtifacts); err != nil {
 		return fmt.Errorf("cleanup superplan artifacts: %w", err)
