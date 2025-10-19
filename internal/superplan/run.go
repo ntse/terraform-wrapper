@@ -2881,10 +2881,14 @@ func buildSuperplanSummary(plan *tfjson.Plan, ctx summaryContext) superplanSumma
 		stackSummaries[stackRel] = summary
 	}
 
-	changedStacks := make(map[string]struct{})
+	changedStacks := make(map[string]struct{}, len(stackSummaries))
 	for rel, summary := range stackSummaries {
 		if summary.HasChanges {
 			changedStacks[rel] = struct{}{}
+		}
+	}
+	for rel, summary := range stackSummaries {
+		if summary.HasChanges {
 			continue
 		}
 		for _, dep := range summary.Dependencies {
