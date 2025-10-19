@@ -800,18 +800,7 @@ func removeTagKeys(target map[string]interface{}) {
 			}
 		}
 
-		switch key {
-		case "tags", "tags_all":
-			if valueMap, ok := value.(map[string]interface{}); ok && len(valueMap) == 0 {
-				target[key] = map[string]interface{}{}
-			} else {
-				target[key] = map[string]interface{}{}
-			}
-		case "default_tags":
-			target[key] = map[string]interface{}{}
-		default:
-			target[key] = map[string]interface{}{}
-		}
+		target[key] = map[string]interface{}{}
 	}
 }
 
