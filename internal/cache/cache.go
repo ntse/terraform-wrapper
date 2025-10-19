@@ -57,7 +57,12 @@ func hashFile(h hash.Hash, path string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() {
+		closeErr := f.Close()
+		if closeErr != nil {
+			err = closeErr
+		}
+	}()
 
 	if _, err := io.Copy(h, f); err != nil {
 		return err

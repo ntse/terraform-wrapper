@@ -47,7 +47,7 @@ func newPlanCommand() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&stackArg, "stack", "", "stack name or path")
-	cmd.MarkFlagRequired("stack")
+	_ = cmd.MarkFlagRequired("stack")
 	return cmd
 }
 

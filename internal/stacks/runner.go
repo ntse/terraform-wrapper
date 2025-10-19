@@ -99,10 +99,6 @@ func (r *Runner) Apply(ctx context.Context, stackDir string) error {
 		return err
 	}
 
-	tf.SetEnv(map[string]string{
-		"TF_CLI_ARGS_apply": "-auto-approve",
-	})
-
 	return tf.Apply(ctx, r.applyOptions(stackDir)...)
 }
 
@@ -115,10 +111,6 @@ func (r *Runner) Destroy(ctx context.Context, stackDir string) error {
 	if err := r.init(ctx, tf, stackDir, true); err != nil {
 		return err
 	}
-
-	tf.SetEnv(map[string]string{
-		"TF_CLI_ARGS_destroy": "-auto-approve",
-	})
 
 	return tf.Destroy(ctx, r.destroyOptions(stackDir)...)
 }

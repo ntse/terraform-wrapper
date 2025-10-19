@@ -343,21 +343,29 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("resolve state path: %w", err)
 	}
 
-	superplanTF.SetEnv(map[string]string{
+	if err := superplanTF.SetEnv(map[string]string{
 		"TF_CLI_ARGS_plan": "-input=false",
 		"TF_INPUT":         "false",
-	})
-	defer superplanTF.SetEnv(nil)
+	}); err != nil {
+		return fmt.Errorf("set terraform env: %w", err)
+	}
+	defer func() {
+		if err := superplanTF.SetEnv(nil); err != nil {
+			fmt.Fprintf(os.Stderr, "[superplan] warning: failed to reset terraform env: %v\n", err)
+		}
+	}()
 
 	planHasChanges, err := superplanTF.Plan(ctx,
 		tfexec.Out(planOutRel),
-		tfexec.State(stateRel),
+		tfexec.State(stateRel), //nolint:staticcheck // required until terraform-exec exposes local backend state override
 		tfexec.Refresh(false),
 	)
 	if err != nil {
 		return fmt.Errorf("terraform plan failed: %w", err)
 	}
-	superplanTF.SetEnv(nil)
+	if err := superplanTF.SetEnv(nil); err != nil {
+		fmt.Fprintf(os.Stderr, "[superplan] warning: failed to clear terraform env: %v\n", err)
+	}
 
 	fmt.Printf("[✓] Generated unified plan (%s)\n", planFileName)
 	if !planHasChanges {

@@ -218,10 +218,12 @@ func (m *memoryS3) metadata(key string) map[string]string {
 }
 
 func (m *memoryS3) delete(key string) {
-	m.DeleteObject(context.Background(), &s3.DeleteObjectInput{
+	if _, err := m.DeleteObject(context.Background(), &s3.DeleteObjectInput{
 		Bucket: aws.String("test"),
 		Key:    aws.String(key),
-	})
+	}); err != nil {
+		panic(err)
+	}
 }
 
 func (m *memoryS3) putExisting(key string, metadata map[string]string) {
