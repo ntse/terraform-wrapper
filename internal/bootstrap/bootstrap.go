@@ -104,13 +104,9 @@ func Run(ctx context.Context, opts Options) error {
 		applyOpts = append(applyOpts, tfexec.VarFile(vf))
 	}
 
-	tf.SetEnv(map[string]string{
-		"TF_CLI_ARGS_apply": "-auto-approve",
-	})
 	if err := tf.Apply(ctx, applyOpts...); err != nil {
 		return fmt.Errorf("local apply failed: %w", err)
 	}
-	tf.SetEnv(nil)
 
 	bucketName := deriveBackendNames(opts)
 

@@ -117,7 +117,6 @@ func (r *integrationRunner) InitOnly(ctx context.Context, stack string, upgrade 
 	if err != nil {
 		return err
 	}
-	defer tf.SetEnv(nil)
 
 	initOpts := []tfexec.InitOption{tfexec.Backend(false)}
 	if upgrade {
@@ -131,13 +130,12 @@ func (r *integrationRunner) PlanWithOutput(ctx context.Context, stack, planPath 
 	if err != nil {
 		return err
 	}
-	defer tf.SetEnv(nil)
 
 	if err := tf.Init(ctx, tfexec.Backend(false)); err != nil {
 		return err
 	}
 
-	opts := []tfexec.PlanOption{tfexec.Out(planPath)}
+	opts := []tfexec.PlanOption{tfexec.Out(planPath), tfexec.Lock(false), tfexec.Refresh(false)}
 	for _, vf := range r.VarFilesFor(stack) {
 		opts = append(opts, tfexec.VarFile(vf))
 	}
@@ -157,10 +155,5 @@ func (r *integrationRunner) newTerraform(stack string) (*tfexec.Terraform, error
 	}
 	tf.SetStdout(io.Discard)
 	tf.SetStderr(io.Discard)
-	tf.SetEnv(map[string]string{
-		"TF_CLI_ARGS_init":  "-backend=false",
-		"TF_CLI_ARGS_plan":  "-lock=false -refresh=false",
-		"TF_CLI_ARGS_apply": "-auto-approve",
-	})
 	return tf, nil
 }

@@ -536,7 +536,7 @@ resource "aws_kms_key" "single" {}
 	lifecycle := resources[2].Body().Blocks()[0]
 	if attr := lifecycle.Body().GetAttribute("ignore_changes"); attr != nil {
 		expr := strings.TrimSpace(tokensToString(attr.Expr().BuildTokens(nil)))
-		if !(ignoreExprContains(expr, "acl") && ignoreExprContains(expr, "tags") && ignoreExprContains(expr, "tags_all")) {
+		if !ignoreExprContains(expr, "acl") || !ignoreExprContains(expr, "tags") || !ignoreExprContains(expr, "tags_all") {
 			t.Fatalf("existing ignore list not preserved: %s", expr)
 		}
 	}

@@ -51,29 +51,7 @@ func Init(ctx context.Context, stackDir string, opts InitOptions) error {
 		initOpts = append([]tfexec.InitOption{tfexec.Upgrade(true)}, initOpts...)
 	}
 
-	varFiles := runner.varFiles(stackAbs)
-	cliArgs := varFileArgs("init", varFiles)
-	if cliArgs != "" {
-		tf.SetEnv(map[string]string{
-			"TF_CLI_ARGS_init": cliArgs,
-		})
-	}
-	defer tf.SetEnv(nil)
-
 	return tf.Init(ctx, initOpts...)
-}
-
-func varFileArgs(command string, files []string) string {
-	if len(files) == 0 {
-		return ""
-	}
-
-	args := ""
-	for _, file := range files {
-		args += fmt.Sprintf(" -var-file=%s", file)
-	}
-
-	return args
 }
 
 func optionOrDefault(value, fallback string) string {

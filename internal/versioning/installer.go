@@ -61,7 +61,7 @@ func resolveInstallVersion(ctx context.Context, constraintStrings []string, pref
 	return nil, fmt.Errorf("no Terraform versions satisfy constraints %v", constraintStrings)
 }
 
-func fetchAvailableVersions(ctx context.Context) (version.Collection, error) {
+func fetchAvailableVersions(ctx context.Context) (versions version.Collection, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, terraformReleasesIndex, nil)
 	if err != nil {
 		return nil, fmt.Errorf("build releases request: %w", err)
@@ -71,7 +71,11 @@ func fetchAvailableVersions(ctx context.Context) (version.Collection, error) {
 	if err != nil {
 		return nil, fmt.Errorf("fetch Terraform releases: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close Terraform releases body: %w", cerr)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
@@ -84,10 +88,9 @@ func fetchAvailableVersions(ctx context.Context) (version.Collection, error) {
 	}
 
 	if len(payload.Versions) == 0 {
-		return nil, errors.New("Terraform releases index empty")
+		return nil, errors.New("Terraform releases index empty") //nolint:staticcheck // "Terraform" is a proper noun
 	}
 
-	var versions version.Collection
 	for key, entry := range payload.Versions {
 		verStr := strings.TrimSpace(entry.Version)
 		if verStr == "" {

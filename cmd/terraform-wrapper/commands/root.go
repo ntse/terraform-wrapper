@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
-	"strings"
 
 	"github.com/hashicorp/go-version"
 	"github.com/spf13/cobra"
@@ -97,17 +96,6 @@ func contextWithCmd(cmd *cobra.Command) context.Context {
 	return cmd.Context()
 }
 
-func displayStack(path string) string {
-	if !strings.HasPrefix(path, rootDir) {
-		return path
-	}
-	rel, err := filepathRelSafe(rootDir, path)
-	if err != nil {
-		return path
-	}
-	return rel
-}
-
 func filepathRelSafe(base, target string) (string, error) {
 	baseAbs, err := filepath.Abs(base)
 	if err != nil {
@@ -118,17 +106,6 @@ func filepathRelSafe(base, target string) (string, error) {
 		return "", err
 	}
 	return filepath.Rel(baseAbs, targetAbs)
-}
-
-func fatalf(format string, args ...interface{}) error {
-	return fmt.Errorf(format, args...)
-}
-
-func ensureDir(path string) error {
-	if err := os.MkdirAll(path, 0o755); err != nil {
-		return fmt.Errorf("ensure dir %s: %w", path, err)
-	}
-	return nil
 }
 
 func printSummary(label string, summary *executor.Summary) {
