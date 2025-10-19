@@ -123,7 +123,7 @@ func (l *OrchestrationLock) Acquire(ctx context.Context, wait bool, force bool) 
 			o.APIOptions = append(o.APIOptions, ifNoneMatchOption("*"))
 		})
 		if err == nil {
-			fmt.Printf("🔒 Acquired orchestration lock for %s\n", l.Env)
+			fmt.Printf("Acquired orchestration lock for %s\n", l.Env)
 			l.locked = true
 			return nil
 		}
@@ -146,7 +146,7 @@ func (l *OrchestrationLock) Acquire(ctx context.Context, wait bool, force bool) 
 		age := time.Since(createdAt)
 
 		if age > l.TTL {
-			fmt.Printf("⚠️  Stale lock detected for %s (age %s) — releasing\n", l.Env, age.Round(time.Second))
+			fmt.Printf("Stale lock detected for %s (age %s) — releasing\n", l.Env, age.Round(time.Second))
 			_, _ = l.Client.DeleteObject(ctx, &s3.DeleteObjectInput{
 				Bucket: aws.String(l.Bucket),
 				Key:    aws.String(l.key()),
@@ -163,7 +163,7 @@ func (l *OrchestrationLock) Acquire(ctx context.Context, wait bool, force bool) 
 		}
 
 		if wait {
-			fmt.Printf("🔁 Waiting for orchestration lock (held by %s since %s)\n", meta["owner"], createdAt.Format(time.RFC3339))
+			fmt.Printf("Waiting for orchestration lock (held by %s since %s)\n", meta["owner"], createdAt.Format(time.RFC3339))
 			select {
 			case <-time.After(l.PollInterval):
 				continue
@@ -199,7 +199,7 @@ func (l *OrchestrationLock) Release(ctx context.Context) error {
 	}
 
 	l.locked = false
-	fmt.Printf("🔓 Released orchestration lock for %s\n", l.Env)
+	fmt.Printf("Released orchestration lock for %s\n", l.Env)
 	return nil
 }
 
