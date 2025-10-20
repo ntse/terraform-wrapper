@@ -94,11 +94,11 @@ jobs:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
         with:
           fetch-depth: 0
-          token: ${{ secrets.GH_PAT }}
 
       - name: Create and push new tag
         env:
           TAG_NAME: ${{ needs.build.outputs.version }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
         shell: bash
         run: |
           set -euo pipefail
