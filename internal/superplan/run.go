@@ -78,7 +78,7 @@ func (o *Options) applyDefaults() {
 		o.RootDir = "."
 	}
 	if o.OutputDir == "" {
-		o.OutputDir = "superplan"
+		o.OutputDir = ".superplan"
 	}
 	if o.Environment == "" {
 		o.Environment = "dev"
@@ -90,6 +90,23 @@ func (o *Options) applyDefaults() {
 
 func Run(ctx context.Context, opts Options) error {
 	opts.applyDefaults()
+
+	tmpDir, err := os.MkdirTemp("", "terraform-superplan-*")
+	if err != nil {
+		return fmt.Errorf("create temporary superplan directory: %w", err)
+	}
+	fmt.Printf("Superplan executed in temporary directory: %s\n", tmpDir)
+	defer func() {
+		if err := os.RemoveAll(tmpDir); err != nil {
+			fmt.Fprintf(os.Stderr, "[superplan] warning: failed to remove temporary directory %s: %v\n", tmpDir, err)
+		} else {
+			fmt.Println("Cleaned up successfully after completion")
+		}
+	}()
+
+	if opts.KeepPlanArtifacts {
+		fmt.Println("[superplan] note: keep-plan-artifacts flag is ignored; plan data is always cleaned up")
+	}
 
 	rootAbs, err := filepath.Abs(opts.RootDir)
 	if err != nil {
@@ -270,20 +287,6 @@ func Run(ctx context.Context, opts Options) error {
 
 	lineage := fmt.Sprintf("superplan-%d", time.Now().UnixNano())
 
-	superplanDir, err := filepath.Abs(opts.OutputDir)
-	if err != nil {
-		return fmt.Errorf("failed to resolve output directory: %w", err)
-	}
-
-	if err := os.MkdirAll(superplanDir, 0o755); err != nil {
-		return fmt.Errorf("unable to create output directory %s: %w", superplanDir, err)
-	}
-
-	mergedDir := filepath.Join(superplanDir, "merged")
-	if err := os.MkdirAll(mergedDir, 0o755); err != nil {
-		return fmt.Errorf("unable to create merged configuration directory %s: %w", mergedDir, err)
-	}
-
 	stateDocument := map[string]interface{}{
 		"version":           baseVersion,
 		"terraform_version": baseTFVersion,
@@ -293,13 +296,13 @@ func Run(ctx context.Context, opts Options) error {
 		"resources":         mergedResources,
 	}
 
-	statePath := filepath.Join(superplanDir, "superstate.json")
+	statePath := filepath.Join(tmpDir, "terraform.tfstate")
 	if err := writeJSON(statePath, stateDocument); err != nil {
 		return fmt.Errorf("failed to write combined state: %w", err)
 	}
 	fmt.Printf("[✓] Merged %d stack states into %s\n", stacksProcessed, statePath)
 
-	configProviderRequirements, err := writeCombinedConfiguration(order, stackPrefixes, rootAbs, mergedDir)
+	configProviderRequirements, err := writeCombinedConfiguration(order, stackPrefixes, rootAbs, tmpDir)
 	if err != nil {
 		return fmt.Errorf("failed to build combined configuration: %w", err)
 	}
@@ -309,62 +312,37 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("failed to collect variable values: %w", err)
 	}
 
-	varFilePath := filepath.Join(mergedDir, "variables.auto.tfvars")
+	varFilePath := filepath.Join(tmpDir, "variables.auto.tfvars")
 	if err := writeTFVarsFile(varFilePath, variableValues); err != nil {
 		return fmt.Errorf("failed to write variables file: %w", err)
 	}
 	fmt.Printf("[✓] Wrote %d variable values from %d sources to %s\n", len(variableValues), sourcesUsed, varFilePath)
 
-	if err := ensureLocalBackend(mergedDir, providerSources, configProviderRequirements); err != nil {
+	if err := ensureLocalBackend(tmpDir, providerSources, configProviderRequirements); err != nil {
 		return fmt.Errorf("failed to prepare superplan configuration: %w", err)
 	}
 
-	superplanTF, err := tfexec.NewTerraform(mergedDir, opts.TerraformPath)
+	superplanTF, err := tfexec.NewTerraform(tmpDir, opts.TerraformPath)
 	if err != nil {
 		return fmt.Errorf("error creating terraform executor for superplan: %w", err)
 	}
 
-	if err := superplanTF.Init(ctx, tfexec.Backend(false)); err != nil {
+	if err := superplanTF.Init(ctx); err != nil {
 		return fmt.Errorf("terraform init failed in superplan directory: %w", err)
 	}
-	fmt.Printf("[✓] Initialized local backend in %s\n", mergedDir)
+	fmt.Printf("[✓] Initialized local backend in %s\n", tmpDir)
 
-	if err := patchModuleResourceLifecycle(mergedDir); err != nil {
+	if err := patchModuleResourceLifecycle(tmpDir); err != nil {
 		return fmt.Errorf("failed to apply lifecycle ignore to modules: %w", err)
 	}
 
-	planPath := filepath.Join(superplanDir, planFileName)
-	planOutRel, err := filepath.Rel(mergedDir, planPath)
-	if err != nil {
-		return fmt.Errorf("resolve plan output path: %w", err)
-	}
-	stateRel, err := filepath.Rel(mergedDir, statePath)
-	if err != nil {
-		return fmt.Errorf("resolve state path: %w", err)
-	}
-
-	if err := superplanTF.SetEnv(map[string]string{
-		"TF_CLI_ARGS_plan": "-input=false",
-		"TF_INPUT":         "false",
-	}); err != nil {
-		return fmt.Errorf("set terraform env: %w", err)
-	}
-	defer func() {
-		if err := superplanTF.SetEnv(nil); err != nil {
-			fmt.Fprintf(os.Stderr, "[superplan] warning: failed to reset terraform env: %v\n", err)
-		}
-	}()
-
+	planPath := filepath.Join(tmpDir, planFileName)
 	planHasChanges, err := superplanTF.Plan(ctx,
-		tfexec.Out(planOutRel),
-		tfexec.State(stateRel), //nolint:staticcheck // required until terraform-exec exposes local backend state override
+		tfexec.Out(planFileName),
 		tfexec.Refresh(false),
 	)
 	if err != nil {
 		return fmt.Errorf("terraform plan failed: %w", err)
-	}
-	if err := superplanTF.SetEnv(nil); err != nil {
-		fmt.Fprintf(os.Stderr, "[superplan] warning: failed to clear terraform env: %v\n", err)
 	}
 
 	fmt.Printf("[✓] Generated unified plan (%s)\n", planFileName)
@@ -377,6 +355,12 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("terraform show plan failed: %w", err)
 	}
 
+	planText, err := superplanTF.ShowPlanFileRaw(ctx, planPath)
+	if err == nil && strings.TrimSpace(planText) != "" {
+		fmt.Println(planText)
+	}
+
+	generatedAt := time.Now().UTC()
 	summary := buildSuperplanSummary(plan, summaryContext{
 		StackInfos:        stackInfosByRel,
 		DependenciesByRel: dependenciesByRel,
@@ -385,19 +369,33 @@ func Run(ctx context.Context, opts Options) error {
 		Environment:       opts.Environment,
 		AccountID:         opts.AccountID,
 		TerraformVersion:  deriveTerraformVersion(opts.TerraformVersion, plan),
-		GeneratedAt:       time.Now().UTC(),
+		GeneratedAt:       generatedAt,
 	})
 
-	summaryPath := filepath.Join(superplanDir, "superplan-summary.json")
+	summaryBase, err := filepath.Abs(opts.OutputDir)
+	if err != nil {
+		return fmt.Errorf("resolve summary output directory: %w", err)
+	}
+	summaryDir := filepath.Join(summaryBase, "summaries")
+	if err := os.MkdirAll(summaryDir, 0o755); err != nil {
+		return fmt.Errorf("create summary directory: %w", err)
+	}
+	summaryFilename := fmt.Sprintf("%s-summary.json", generatedAt.Format("2006-01-02T15-04Z"))
+	summaryPath := filepath.Join(summaryDir, summaryFilename)
 	if err := writeJSON(summaryPath, summary); err != nil {
 		return fmt.Errorf("write superplan summary: %w", err)
 	}
 
-	fmt.Printf("[✓] Superplan complete: %d stacks analyzed, %d with changes\n", summary.TotalStacks, summary.StacksWithChanges)
+	warnIfPlanNotIgnored()
 
-	if err := cleanupSuperplanArtifacts(mergedDir, planPath, opts.KeepPlanArtifacts); err != nil {
-		return fmt.Errorf("cleanup superplan artifacts: %w", err)
+	summaryDisplay := summaryPath
+	if wd, err := os.Getwd(); err == nil {
+		if rel, err := filepath.Rel(wd, summaryPath); err == nil {
+			summaryDisplay = rel
+		}
 	}
+	fmt.Printf("Summary written to: %s\n", summaryDisplay)
+	fmt.Printf("[✓] Superplan complete: %d stacks analyzed, %d with changes\n", summary.TotalStacks, summary.StacksWithChanges)
 
 	return nil
 }
@@ -2762,19 +2760,6 @@ func patchModuleResourceLifecycle(superplanDir string) error {
 	return nil
 }
 
-func cleanupSuperplanArtifacts(mergedDir, planPath string, keep bool) error {
-	if keep {
-		return nil
-	}
-	if err := os.RemoveAll(mergedDir); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove merged configuration: %w", err)
-	}
-	if err := os.Remove(planPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove plan file: %w", err)
-	}
-	return nil
-}
-
 func ensureLocalBackend(dir string, stateProviders map[string]string, configProviders providerRequirements) error {
 	mainTFPath := filepath.Join(dir, "main.tf")
 
@@ -2984,4 +2969,16 @@ func uniqueSortedStrings(items []string) []string {
 		}
 	}
 	return result
+}
+
+func warnIfPlanNotIgnored() {
+	data, err := os.ReadFile(".gitignore")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[superplan] warning: unable to read .gitignore: %v\n", err)
+		return
+	}
+	content := string(data)
+	if !strings.Contains(content, "*.tfplan") && !strings.Contains(content, ".tfplan") {
+		fmt.Fprintf(os.Stderr, "[superplan] warning: .tfplan files are not ignored by Git (.tfplan missing from .gitignore)\n")
+	}
 }

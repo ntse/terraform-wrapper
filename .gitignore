@@ -33,3 +33,6 @@ go.work.sum
 
 # Binary file
 bin/
+*.tfplan
+terraform-superplan-*
+*.tfstate
