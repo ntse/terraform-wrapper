@@ -3,6 +3,7 @@ GO ?= go
 VERSION ?= $(shell git rev-parse --short=8 HEAD)
 LDFLAGS := -X 'terraform-wrapper/cmd/terraform-wrapper/commands.wrapperVersion=$(VERSION)'
 GOBIN ?= /usr/local/bin/
+OUTFILE ?= terraform-wrapper
 
 all: install
 
@@ -10,7 +11,7 @@ build:
 	@echo "Building terraform-wrapper for $(GOOS)/$(GOARCH) with version $(VERSION)"
 	@mkdir -p $(BINDIR)
 
-	$(GO) build -ldflags "$(LDFLAGS)"  -o $(BINDIR)/terraform-wrapper ./cmd/terraform-wrapper
+	$(GO) build -ldflags "$(LDFLAGS)"  -o $(BINDIR)/$(OUTFILE) ./cmd/terraform-wrapper
 
 install:
 	@echo "Installing terraform-wrapper for $(GOOS)/$(GOARCH) with version $(VERSION) in $(GOBIN)"

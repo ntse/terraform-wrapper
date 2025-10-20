@@ -16,54 +16,52 @@ permissions:
 
 jobs:
   release:
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
-
-      - name: Check if triggering run was for main
-        id: check_main
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -e
-          REF=$(gh run view ${{ github.event.workflow_run.id }} --json headBranch,headSha --jq '.headBranch')
-          echo "Trigger ref: $REF"
-          if [[ "$REF" != "main" ]]; then
-            echo "continue=false" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-          echo "continue=true" >> $GITHUB_OUTPUT
-
-      - name: Fetch latest semver tag
-        if: steps.check_main.outputs.continue == 'true'
-        id: get_tag
-        run: |
-          set -e
-          git fetch --tags
-          TAG=$(git tag -l 'v*.*.*' | sort -V | tail -n1)
-          if [[ -z "$TAG" ]]; then
-            echo "No semantic version tag found!"
-            exit 1
-          fi
-          echo "Latest tag: $TAG"
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
+        with:
+          fetch-depth: 0
 
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        if: steps.check_main.outputs.continue == 'true'
         with:
           name: binaries
           path: dist/
           github-token: ${{ secrets.GITHUB_TOKEN }}
           run-id: ${{ github.event.workflow_run.id }}
 
+      - name: Read version from artifact
+        id: version
+        run: |
+          set -euo pipefail
+          VERSION=$(cat dist/VERSION)
+          echo "Release version: $VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Validate release tag
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Artifact version $VERSION is not a semantic tag"
+            exit 1
+          fi
+          git fetch --tags
+          if ! git rev-parse "$VERSION" >/dev/null 2>&1; then
+            echo "Tag $VERSION not found in repository"
+            exit 1
+          fi
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@6da8fa9354ddfdc4aeace5fc48d7f679b5214090 # v2
-        if: steps.check_main.outputs.continue == 'true'
         with:
-          tag_name: ${{ steps.get_tag.outputs.tag }}
-          name: Release ${{ steps.get_tag.outputs.tag }}
+          tag_name: ${{ steps.version.outputs.version }}
+          name: Release ${{ steps.version.outputs.version }}
           generate_release_notes: true
-          files: dist/*
+          files: |
+            dist/*.tar.gz
+            dist/SHA256SUMS
+            dist/VERSION
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
