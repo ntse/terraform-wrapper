@@ -1,68 +1,94 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "config:base",
+    "config:recommended",
     ":dependencyDashboard",
     ":automergeAll",
     ":semanticCommits",
     ":maintainLockFilesWeekly",
     "group:monorepos"
   ],
-
   "timezone": "Europe/London",
-  "schedule": ["after 9am on Monday"],
-
+  "schedule": [
+    "after 9am on Monday"
+  ],
   "prHourlyLimit": 2,
   "prConcurrentLimit": 5,
-
   "packageRules": [
     {
       "description": "Group all Go module updates together (weekly)",
-      "matchManagers": ["gomod"],
+      "matchManagers": [
+        "gomod"
+      ],
       "groupName": "Go modules",
-      "schedule": ["after 9am on Monday"],
+      "schedule": [
+        "after 9am on Monday"
+      ],
       "automerge": true,
       "automergeType": "branch",
-      "stabilityDays": 3
+      "minimumReleaseAge": "3 days"
     },
     {
       "description": "Group all GitHub Actions updates together (weekly)",
-      "matchManagers": ["github-actions"],
+      "matchManagers": [
+        "github-actions"
+      ],
       "groupName": "GitHub Actions",
-      "schedule": ["after 9am on Monday"],
+      "schedule": [
+        "after 9am on Monday"
+      ],
       "automerge": true,
       "automergeType": "branch",
-      "stabilityDays": 3
+      "minimumReleaseAge": "3 days"
     },
     {
       "description": "Group all linting and code-quality tools",
-      "matchPackageNames": ["/golangci-lint/"],
+      "matchPackageNames": [
+        "/golangci-lint/"
+      ],
       "groupName": "Linting and static analysis tools",
-      "schedule": ["after 9am on Monday"],
+      "schedule": [
+        "after 9am on Monday"
+      ],
       "automerge": true,
       "automergeType": "branch"
     },
     {
       "description": "Major updates for Go modules require manual review",
-      "matchManagers": ["gomod"],
-      "matchUpdateTypes": ["major"],
-      "labels": ["UPDATE-MAJOR"],
+      "matchManagers": [
+        "gomod"
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "labels": [
+        "UPDATE-MAJOR"
+      ],
       "automerge": false,
-      "stabilityDays": 5
+      "minimumReleaseAge": "5 days"
     },
     {
       "description": "Weekly automerge of patch/minor updates for dev tools",
-      "matchManagers": ["gomod", "github-actions"],
-      "matchUpdateTypes": ["minor", "patch"],
-      "schedule": ["after 9am on Monday"],
+      "matchManagers": [
+        "gomod",
+        "github-actions"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "schedule": [
+        "after 9am on Monday"
+      ],
       "automerge": true,
       "automergeType": "branch"
     }
   ],
-
   "lockFileMaintenance": {
     "enabled": true,
-    "schedule": ["before 5am on Sunday"],
+    "schedule": [
+      "before 5am on Sunday"
+    ],
     "automerge": true
   }
 }
