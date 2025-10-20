@@ -12,19 +12,23 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ldflags.outputs.version }}
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+        with:
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6
         with:
-          go-version: '1.25'
+          go-version-file: go.mod
+          cache: true
 
       - name: golangci-lint
         uses: golangci/golangci-lint-action@4afd733a84b1f43292c63897423277bb7f4313a9 # v8
         with:
           version: v2.1
-          args: --issues-exit-code=0
 
       - name: Run tests
         run: make test
@@ -33,13 +37,19 @@ jobs:
         id: ldflags
         env:
             MAIN_PUSH: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
+        shell: bash
         run: |
-          set -e
+          set -euo pipefail
+          git fetch --tags --force >/dev/null 2>&1 || true
           if [[ "$MAIN_PUSH" == "true" ]]; then
-            LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
-            IFS='.' read -r MAJOR MINOR PATCH <<< "${LAST_TAG#v}"
-            PATCH=$((PATCH + 1))
-            VERSION="v$MAJOR.$MINOR.$PATCH"
+            LAST_TAG=$(git tag -l 'v*.*.*' | sort -V | tail -n1)
+            if [[ -z "$LAST_TAG" ]]; then
+              VERSION="v0.0.1"
+            else
+              IFS='.' read -r MAJOR MINOR PATCH <<< "${LAST_TAG#v}"
+              PATCH=$((PATCH + 1))
+              VERSION="v$MAJOR.$MINOR.$PATCH"
+            fi
             echo "Predicted next version: $VERSION"
           else
             VERSION=$(git rev-parse --short=8 HEAD)
@@ -47,13 +57,27 @@ jobs:
           echo "Using tag: $VERSION"
           echo "LDFLAGS=-X 'terraform-wrapper/cmd/terraform-wrapper/commands.wrapperVersion=${VERSION}'" >> "$GITHUB_ENV"
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Build binaries
         run: |
+          set -euo pipefail
           mkdir -p dist
           echo "Building with LDFLAGS: $LDFLAGS"
-          GOOS=linux GOARCH=amd64 make build BINDIR=dist VERSION=$VERSION
-          GOOS=darwin GOARCH=arm64 make build BINDIR=dist VERSION=$VERSION
+          declare -a targets=(
+            "linux amd64"
+            "darwin arm64"
+          )
+          for target in "${targets[@]}"; do
+            read -r GOOS GOARCH <<< "$target"
+            OUTFILE="terraform-wrapper-${GOOS}-${GOARCH}"
+            echo ">> Building ${OUTFILE}"
+            GOOS=$GOOS GOARCH=$GOARCH OUTFILE=$OUTFILE make build BINDIR=dist VERSION=$VERSION
+            tar -czf "dist/${OUTFILE}.tar.gz" -C dist "${OUTFILE}"
+            rm "dist/${OUTFILE}"
+          done
+          echo "$VERSION" > dist/VERSION
+          (cd dist && sha256sum terraform-wrapper-*.tar.gz > SHA256SUMS)
 
       - name: Upload artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -70,29 +94,24 @@ jobs:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
         with:
           fetch-depth: 0
-
-      - name: Get latest tag
-        id: get_tag
-        run: |
-          TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
-          echo "Latest tag: $TAG"
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
-
-      - name: Bump version (patch)
-        id: bump_version
-        run: |
-          OLD_TAG=${{ steps.get_tag.outputs.tag }}
-          IFS='.' read -r MAJOR MINOR PATCH <<< "${OLD_TAG#v}"
-          PATCH=$((PATCH + 1))
-          NEW_TAG="v$MAJOR.$MINOR.$PATCH"
-          echo "New tag: $NEW_TAG"
-          echo "new_tag=$NEW_TAG" >> $GITHUB_OUTPUT
+          token: ${{ secrets.GH_PAT }}
 
       - name: Create and push new tag
         env:
-          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+          TAG_NAME: ${{ needs.build.outputs.version }}
+        shell: bash
         run: |
+          set -euo pipefail
+          if [[ ! "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Tag $TAG_NAME is not semantic (skipping tag push)."
+            exit 0
+          fi
+          git fetch --tags
+          if git tag --list "$TAG_NAME" | grep -q "^$TAG_NAME$"; then
+            echo "Tag $TAG_NAME already exists. Nothing to do."
+            exit 0
+          fi
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
-          git tag ${{ steps.bump_version.outputs.new_tag }}
-          git push origin ${{ steps.bump_version.outputs.new_tag }}
+          git tag "$TAG_NAME"
+          git push origin "$TAG_NAME"
