@@ -15,7 +15,7 @@ jobs:
     outputs:
       version: ${{ steps.ldflags.outputs.version }}
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
         with:
           fetch-depth: 0
 
@@ -80,7 +80,7 @@ jobs:
           (cd dist && sha256sum terraform-wrapper-*.tar.gz > SHA256SUMS)
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         with:
           name: binaries
@@ -91,7 +91,7 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
         with:
           fetch-depth: 0
 
