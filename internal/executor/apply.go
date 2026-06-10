@@ -11,17 +11,14 @@ import (
 )
 
 func ApplyAll(ctx context.Context, g graph.Graph, opts Options) (*Summary, error) {
-	opts.UseCache = false
 	return RunAll(ctx, g, opts, OperationApply)
 }
 
 func DestroyAll(ctx context.Context, g graph.Graph, opts Options) (*Summary, error) {
-	opts.UseCache = false
 	return RunAll(ctx, g, opts, OperationDestroy)
 }
 
 func InitAll(ctx context.Context, g graph.Graph, opts Options) (*Summary, error) {
-	opts.UseCache = false
 	return RunAll(ctx, g, opts, OperationInit)
 }
 
@@ -70,6 +67,8 @@ func runSingle(ctx context.Context, stack *graph.Stack, opts Options, op Operati
 
 	var execErr error
 	switch op {
+	case OperationPlan:
+		execErr = runner.Plan(ctx, stack.Path)
 	case OperationApply:
 		execErr = runner.Apply(ctx, stack.Path)
 	case OperationDestroy:

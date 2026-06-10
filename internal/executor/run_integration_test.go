@@ -125,7 +125,7 @@ func (r *integrationRunner) InitOnly(ctx context.Context, stack string, upgrade 
 	return tf.Init(ctx, initOpts...)
 }
 
-func (r *integrationRunner) PlanWithOutput(ctx context.Context, stack, planPath string) error {
+func (r *integrationRunner) Plan(ctx context.Context, stack string) error {
 	tf, err := r.newTerraform(stack)
 	if err != nil {
 		return err
@@ -135,7 +135,7 @@ func (r *integrationRunner) PlanWithOutput(ctx context.Context, stack, planPath 
 		return err
 	}
 
-	opts := []tfexec.PlanOption{tfexec.Out(planPath), tfexec.Lock(false), tfexec.Refresh(false)}
+	opts := []tfexec.PlanOption{tfexec.Lock(false), tfexec.Refresh(false)}
 	for _, vf := range r.VarFilesFor(stack) {
 		opts = append(opts, tfexec.VarFile(vf))
 	}

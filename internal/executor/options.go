@@ -18,7 +18,7 @@ type runner interface {
 	Apply(context.Context, string) error
 	Destroy(context.Context, string) error
 	InitOnly(context.Context, string, bool) error
-	PlanWithOutput(context.Context, string, string) error
+	Plan(context.Context, string) error
 	VarFilesFor(string) []string
 }
 
@@ -30,8 +30,6 @@ type Options struct {
 	TerraformPath    string
 	TerraformVersion string
 	Parallelism      int
-	UseCache         bool
-	ForceStacks      map[string]struct{}
 	DisableRefresh   bool
 }
 
@@ -63,12 +61,4 @@ func (o *Options) Relative(path string) (string, error) {
 		return "", err
 	}
 	return filepath.Rel(rootAbs, stackAbs)
-}
-
-func (o *Options) IsForced(stackRel string) bool {
-	if o.ForceStacks == nil {
-		return false
-	}
-	_, ok := o.ForceStacks[stackRel]
-	return ok
 }

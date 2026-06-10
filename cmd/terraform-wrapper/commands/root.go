@@ -18,18 +18,15 @@ import (
 )
 
 var (
-	rootDir           string
-	environment       string
-	envAlias          string
-	terraformVersion  string
-	accountID         string
-	region            string
-	superplanDir      string
-	parallelism       int
-	cacheEnabled      bool
-	forcePlanStacks   []string
-	keepPlanArtifacts bool
-	refreshState      bool
+	rootDir          string
+	environment      string
+	envAlias         string
+	terraformVersion string
+	accountID        string
+	region           string
+	superplanDir     string
+	parallelism      int
+	refreshState     bool
 )
 
 var wrapperVersion = "dev-1"
@@ -70,9 +67,6 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&region, "region", "eu-west-2", "AWS region")
 	rootCmd.PersistentFlags().StringVar(&superplanDir, "out", ".superplan", "directory for generated superplan artifacts")
 	rootCmd.PersistentFlags().IntVar(&parallelism, "parallelism", 4, "number of stacks to run concurrently")
-	rootCmd.PersistentFlags().BoolVar(&cacheEnabled, "cache", true, "enable plan cache reuse")
-	rootCmd.PersistentFlags().StringSliceVar(&forcePlanStacks, "force-plan", nil, "comma separated list of stacks to force planning")
-	rootCmd.PersistentFlags().BoolVar(&keepPlanArtifacts, "keep-plan-artifacts", false, "preserve generated superplan artifacts")
 	rootCmd.PersistentFlags().BoolVar(&refreshState, "refresh", true, "refresh state before planning")
 
 	rootCmd.AddCommand(newBootstrapCommand())
@@ -112,7 +106,7 @@ func printSummary(label string, summary *executor.Summary) {
 	if summary == nil {
 		return
 	}
-	fmt.Printf("[%s] executed=%d cached=%d skipped=%d\n", label, summary.Executed, summary.Cached, summary.Skipped)
+	fmt.Printf("[%s] executed=%d skipped=%d\n", label, summary.Executed, summary.Skipped)
 	if len(summary.Failed) > 0 {
 		fmt.Println("Failures:")
 		for stack, err := range summary.Failed {
@@ -122,13 +116,6 @@ func printSummary(label string, summary *executor.Summary) {
 }
 
 func executorOptions(binaryPath, resolvedVersion string) executor.Options {
-	forceMap := make(map[string]struct{})
-	for _, name := range forcePlanStacks {
-		rel := normalizeStackName(name)
-		if rel != "" {
-			forceMap[rel] = struct{}{}
-		}
-	}
 	return executor.Options{
 		RootDir:          rootDir,
 		Environment:      environment,
@@ -137,8 +124,6 @@ func executorOptions(binaryPath, resolvedVersion string) executor.Options {
 		TerraformPath:    binaryPath,
 		TerraformVersion: resolvedVersion,
 		Parallelism:      parallelism,
-		UseCache:         cacheEnabled,
-		ForceStacks:      forceMap,
 		DisableRefresh:   !refreshState,
 	}
 }

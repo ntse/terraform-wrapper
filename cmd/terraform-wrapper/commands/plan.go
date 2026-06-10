@@ -73,14 +73,13 @@ func newPlanAllCommand() *cobra.Command {
 			}
 
 			return superplan.Run(ctx, superplan.Options{
-				RootDir:           rootDir,
-				OutputDir:         superplanDir,
-				TerraformPath:     res.BinaryPath,
-				TerraformVersion:  resolvedVersion,
-				Environment:       environment,
-				AccountID:         accountID,
-				Region:            region,
-				KeepPlanArtifacts: keepPlanArtifacts,
+				RootDir:          rootDir,
+				OutputDir:        superplanDir,
+				TerraformPath:    res.BinaryPath,
+				TerraformVersion: resolvedVersion,
+				Environment:      environment,
+				AccountID:        accountID,
+				Region:           region,
 			})
 		},
 	}
