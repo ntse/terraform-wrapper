@@ -66,7 +66,7 @@ func (r *Runner) Plan(ctx context.Context, stackDir string) error {
 		return err
 	}
 
-	if err := r.init(ctx, tf, stackDir, true); err != nil {
+	if err := r.ensureInit(ctx, tf, stackDir); err != nil {
 		return err
 	}
 
@@ -80,7 +80,7 @@ func (r *Runner) Apply(ctx context.Context, stackDir string) error {
 		return err
 	}
 
-	if err := r.init(ctx, tf, stackDir, true); err != nil {
+	if err := r.ensureInit(ctx, tf, stackDir); err != nil {
 		return err
 	}
 
@@ -93,7 +93,7 @@ func (r *Runner) Destroy(ctx context.Context, stackDir string) error {
 		return err
 	}
 
-	if err := r.init(ctx, tf, stackDir, true); err != nil {
+	if err := r.ensureInit(ctx, tf, stackDir); err != nil {
 		return err
 	}
 
@@ -131,6 +131,16 @@ func (r *Runner) InitOnly(ctx context.Context, stackDir string, upgrade bool) er
 		return err
 	}
 	return r.init(ctx, tf, stackDir, upgrade)
+}
+
+// ensureInit runs `terraform init` only when the stack has not already been
+// initialised. It never passes -upgrade so subsequent plans/applies do not
+// re-download providers and modules every run.
+func (r *Runner) ensureInit(ctx context.Context, tf *tfexec.Terraform, stackDir string) error {
+	if fileExists(filepath.Join(stackDir, ".terraform", "terraform.tfstate")) {
+		return nil
+	}
+	return r.init(ctx, tf, stackDir, false)
 }
 
 func (r *Runner) init(ctx context.Context, tf *tfexec.Terraform, stackDir string, upgrade bool) error {
