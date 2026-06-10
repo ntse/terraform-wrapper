@@ -51,11 +51,11 @@ func TestManagerWaitingAndSkip(t *testing.T) {
 	m.Register("stack")
 	logs := captureStdout(t, func() {
 		m.Waiting("stack", "deps")
-		m.Skip("stack", "cache hit")
+		m.Skip("stack", "skipped")
 	})
 
 	require.Contains(t, logs, "[wait] stack (deps)")
-	require.Contains(t, logs, "[skip] stack (cache hit)")
+	require.Contains(t, logs, "[skip] stack (skipped)")
 }
 
 func TestManagerFail(t *testing.T) {

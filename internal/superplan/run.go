@@ -26,14 +26,13 @@ import (
 )
 
 type Options struct {
-	RootDir           string
-	OutputDir         string
-	TerraformPath     string
-	TerraformVersion  string
-	Environment       string
-	AccountID         string
-	Region            string
-	KeepPlanArtifacts bool
+	RootDir          string
+	OutputDir        string
+	TerraformPath    string
+	TerraformVersion string
+	Environment      string
+	AccountID        string
+	Region           string
 }
 
 type stackMetadata struct {
@@ -103,10 +102,6 @@ func Run(ctx context.Context, opts Options) error {
 			fmt.Println("Cleaned up successfully after completion")
 		}
 	}()
-
-	if opts.KeepPlanArtifacts {
-		fmt.Println("[superplan] note: keep-plan-artifacts flag is ignored; plan data is always cleaned up")
-	}
 
 	rootAbs, err := filepath.Abs(opts.RootDir)
 	if err != nil {

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -18,7 +17,6 @@ type ResolveOptions struct {
 	StackPaths     []string
 	Stdout         io.Writer
 	Stderr         io.Writer
-	LockFilePath   string
 	ForceInstall   bool
 	UseSystemOnly  bool
 	DisableInstall bool
@@ -31,7 +29,6 @@ type ResolveResult struct {
 	UsedSystemBinary bool
 	SystemBinaryPath string
 	Constraints      map[string]string
-	LockFilePath     string
 }
 
 func ResolveTerraformBinary(ctx context.Context, opts ResolveOptions) (*ResolveResult, error) {
@@ -44,7 +41,6 @@ func ResolveTerraformBinary(ctx context.Context, opts ResolveOptions) (*ResolveR
 	if opts.ForceInstall && opts.DisableInstall {
 		return nil, errors.New("TFWRAPPER_FORCE_INSTALL conflicts with TFWRAPPER_DISABLE_INSTALL")
 	}
-	// disable install does not conflict with use system, so allow.
 
 	stdout := opts.Stdout
 	if stdout == nil {
@@ -53,11 +49,6 @@ func ResolveTerraformBinary(ctx context.Context, opts ResolveOptions) (*ResolveR
 	stderr := opts.Stderr
 	if stderr == nil {
 		stderr = os.Stderr
-	}
-
-	lockPath := opts.LockFilePath
-	if lockPath == "" {
-		lockPath = filepath.Join(opts.RootDir, ".terraform-version.lock.json")
 	}
 
 	constraintsByStack, err := DetectConstraints(opts.RootDir, opts.StackPaths)
@@ -80,32 +71,12 @@ func ResolveTerraformBinary(ctx context.Context, opts ResolveOptions) (*ResolveR
 		constraintStrings = append(constraintStrings, constraintsByStack[stack])
 	}
 
-	lock, err := ReadLockFile(lockPath)
-	if err != nil {
-		if _, logErr := fmt.Fprintf(stderr, "warning: failed to read lock file: %v\n", err); logErr != nil {
-			return nil, fmt.Errorf("write lock warning: %w", logErr)
-		}
-		lock = nil
-	}
-
-	var lockVersion *version.Version
-	if lock != nil && lock.Version != "" {
-		lockVersion, err = version.NewVersion(lock.Version)
-		if err != nil {
-			if _, logErr := fmt.Fprintf(stderr, "warning: ignoring invalid version in lock file %q: %v\n", lock.Version, err); logErr != nil {
-				return nil, fmt.Errorf("write invalid lock warning: %w", logErr)
-			}
-			lockVersion = nil
-		}
-	}
-
 	if opts.PinnedVersion != nil {
 		if ok, cerr := IsVersionCompatible(opts.PinnedVersion, constraintStrings); cerr != nil {
 			return nil, cerr
 		} else if !ok {
 			return nil, fmt.Errorf("pinned Terraform version %s does not satisfy stack constraints", opts.PinnedVersion)
 		}
-		lockVersion = opts.PinnedVersion
 	}
 
 	systemVersion, systemPath, systemErr := DetectSystemTerraformVersion(ctx)
@@ -136,96 +107,11 @@ func ResolveTerraformBinary(ctx context.Context, opts ResolveOptions) (*ResolveR
 				return nil, fmt.Errorf("write system success message: %w", logErr)
 			}
 		}
-		result := &ResolveResult{
-			BinaryPath:       systemPath,
-			Version:          systemVersion,
-			UsedSystemBinary: true,
-			SystemBinaryPath: systemPath,
-			Constraints:      constraintsByStack,
-			LockFilePath:     lockPath,
-		}
-		if err := WriteLockFile(lockPath, LockFile{
-			Version:          systemVersion.String(),
-			UsedSystemBinary: true,
-			BinaryPath:       systemPath,
-			DetectedFrom:     stackNames,
-		}); err != nil {
-			if _, logErr := fmt.Fprintf(stderr, "warning: failed to write lock file: %v\n", err); logErr != nil {
-				return nil, fmt.Errorf("write lock persistence warning: %w", logErr)
-			}
-		}
-		if _, logErr := fmt.Fprintf(stdout, "Using system binary: %s\n", systemPath); logErr != nil {
-			return nil, fmt.Errorf("write system binary message: %w", logErr)
-		}
-		if _, logErr := fmt.Fprintf(stdout, "Locked version: %s\n", systemVersion.String()); logErr != nil {
-			return nil, fmt.Errorf("write locked version message: %w", logErr)
-		}
-		return result, nil
-	}
-
-	// Attempt to reuse lock file first when not forcing install.
-	if !opts.ForceInstall && lockVersion != nil {
-		if ok, err := IsVersionCompatible(lockVersion, constraintStrings); err != nil {
-			return nil, err
-		} else if ok {
-			if lock.UsedSystemBinary {
-				if systemErr == nil && systemVersion.Equal(lockVersion) {
-					if _, logErr := fmt.Fprintf(stdout, "Reusing system Terraform v%s from previous lock.\n", lockVersion); logErr != nil {
-						return nil, fmt.Errorf("write reuse system message: %w", logErr)
-					}
-					return finalizeResolution(stdout, stderr, lockPath, stackNames, constraintsByStack, lockVersion, systemPath, true)
-				}
-				cachedPath, cErr := cachedBinaryPath(lockVersion)
-				if cErr == nil {
-					if info, err := os.Stat(cachedPath); err == nil && !info.IsDir() {
-						if _, logErr := fmt.Fprintf(stdout, "System Terraform no longer matches lock; using cached install for v%s.\n", lockVersion); logErr != nil {
-							return nil, fmt.Errorf("write reuse cached message: %w", logErr)
-						}
-						return finalizeResolution(stdout, stderr, lockPath, stackNames, constraintsByStack, lockVersion, cachedPath, false)
-					}
-				}
-				if opts.DisableInstall {
-					return nil, fmt.Errorf("locked Terraform %s not available locally and installation disabled", lockVersion)
-				}
-				path, err := ensureVersionInstalled(ctx, lockVersion)
-				if err == nil {
-					if _, logErr := fmt.Fprintf(stdout, "System Terraform no longer matches lock; using cached install for v%s.\n", lockVersion); logErr != nil {
-						return nil, fmt.Errorf("write reuse installed message: %w", logErr)
-					}
-					return finalizeResolution(stdout, stderr, lockPath, stackNames, constraintsByStack, lockVersion, path, false)
-				}
-				if _, logErr := fmt.Fprintf(stderr, "warning: failed to reuse locked install %s: %v\n", lockVersion, err); logErr != nil {
-					return nil, fmt.Errorf("write reuse-locked warning: %w", logErr)
-				}
-			} else {
-				cachedPath, cErr := cachedBinaryPath(lockVersion)
-				if cErr == nil {
-					if info, err := os.Stat(cachedPath); err == nil && !info.IsDir() {
-						if _, logErr := fmt.Fprintf(stdout, "Reusing cached Terraform installation v%s.\n", lockVersion); logErr != nil {
-							return nil, fmt.Errorf("write reuse cached install message: %w", logErr)
-						}
-						return finalizeResolution(stdout, stderr, lockPath, stackNames, constraintsByStack, lockVersion, cachedPath, false)
-					}
-				}
-				if opts.DisableInstall {
-					return nil, fmt.Errorf("cached Terraform %s not available locally and installation disabled", lockVersion)
-				}
-				path, err := ensureVersionInstalled(ctx, lockVersion)
-				if err == nil {
-					if _, logErr := fmt.Fprintf(stdout, "Reusing cached Terraform installation v%s.\n", lockVersion); logErr != nil {
-						return nil, fmt.Errorf("write reuse installed cache message: %w", logErr)
-					}
-					return finalizeResolution(stdout, stderr, lockPath, stackNames, constraintsByStack, lockVersion, path, false)
-				}
-				if _, logErr := fmt.Fprintf(stderr, "warning: failed to reuse cached Terraform %s: %v\n", lockVersion, err); logErr != nil {
-					return nil, fmt.Errorf("write reuse cached warning: %w", logErr)
-				}
-			}
-		}
+		return finalizeResolution(stdout, constraintsByStack, systemVersion, systemPath, true)
 	}
 
 	if opts.ForceInstall {
-		versionToInstall, err := resolveInstallVersion(ctx, constraintStrings, lockVersion)
+		versionToInstall, err := resolveInstallVersion(ctx, constraintStrings, opts.PinnedVersion)
 		if err != nil {
 			return nil, err
 		}
@@ -236,7 +122,7 @@ func ResolveTerraformBinary(ctx context.Context, opts ResolveOptions) (*ResolveR
 		if err != nil {
 			return nil, err
 		}
-		return finalizeResolution(stdout, stderr, lockPath, stackNames, constraintsByStack, versionToInstall, path, false)
+		return finalizeResolution(stdout, constraintsByStack, versionToInstall, path, false)
 	}
 
 	if systemErr == nil {
@@ -248,7 +134,7 @@ func ResolveTerraformBinary(ctx context.Context, opts ResolveOptions) (*ResolveR
 			if _, logErr := fmt.Fprintf(stdout, "System Terraform v%s detected — satisfies all constraints.\n", systemVersion); logErr != nil {
 				return nil, fmt.Errorf("write system compatibility message: %w", logErr)
 			}
-			return finalizeResolution(stdout, stderr, lockPath, stackNames, constraintsByStack, systemVersion, systemPath, true)
+			return finalizeResolution(stdout, constraintsByStack, systemVersion, systemPath, true)
 		}
 		if _, logErr := fmt.Fprintf(stdout, "System Terraform v%s does not satisfy all constraints.\n", systemVersion); logErr != nil {
 			return nil, fmt.Errorf("write system incompatibility message: %w", logErr)
@@ -269,11 +155,7 @@ func ResolveTerraformBinary(ctx context.Context, opts ResolveOptions) (*ResolveR
 		}
 	}
 
-	versionPref := lockVersion
-	if opts.PinnedVersion != nil {
-		versionPref = opts.PinnedVersion
-	}
-	versionToInstall, err := resolveInstallVersion(ctx, constraintStrings, versionPref)
+	versionToInstall, err := resolveInstallVersion(ctx, constraintStrings, opts.PinnedVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -290,29 +172,15 @@ func ResolveTerraformBinary(ctx context.Context, opts ResolveOptions) (*ResolveR
 	if err != nil {
 		return nil, err
 	}
-	return finalizeResolution(stdout, stderr, lockPath, stackNames, constraintsByStack, versionToInstall, path, false)
+	return finalizeResolution(stdout, constraintsByStack, versionToInstall, path, false)
 }
 
-func finalizeResolution(stdout, stderr io.Writer, lockPath string, stacks []string, constraints map[string]string, version *version.Version, binaryPath string, usedSystem bool) (*ResolveResult, error) {
+func finalizeResolution(stdout io.Writer, constraints map[string]string, version *version.Version, binaryPath string, usedSystem bool) (*ResolveResult, error) {
 	if binaryPath == "" {
 		return nil, errors.New("binary path cannot be empty")
 	}
 	if stdout == nil {
 		stdout = os.Stdout
-	}
-	if stderr == nil {
-		stderr = os.Stderr
-	}
-
-	if err := WriteLockFile(lockPath, LockFile{
-		Version:          version.String(),
-		UsedSystemBinary: usedSystem,
-		BinaryPath:       binaryPath,
-		DetectedFrom:     stacks,
-	}); err != nil {
-		if _, logErr := fmt.Fprintf(stderr, "warning: failed to write lock file: %v\n", err); logErr != nil {
-			return nil, fmt.Errorf("write lock failure warning: %w", logErr)
-		}
 	}
 
 	if usedSystem {
@@ -324,8 +192,8 @@ func finalizeResolution(stdout, stderr io.Writer, lockPath string, stacks []stri
 			return nil, fmt.Errorf("write installed binary info: %w", logErr)
 		}
 	}
-	if _, logErr := fmt.Fprintf(stdout, "Locked version: %s\n", version.String()); logErr != nil {
-		return nil, fmt.Errorf("write locked version info: %w", logErr)
+	if _, logErr := fmt.Fprintf(stdout, "Resolved version: %s\n", version.String()); logErr != nil {
+		return nil, fmt.Errorf("write resolved version info: %w", logErr)
 	}
 
 	return &ResolveResult{
@@ -334,7 +202,6 @@ func finalizeResolution(stdout, stderr io.Writer, lockPath string, stacks []stri
 		UsedSystemBinary: usedSystem,
 		SystemBinaryPath: binaryPath,
 		Constraints:      constraints,
-		LockFilePath:     lockPath,
 	}, nil
 }
 

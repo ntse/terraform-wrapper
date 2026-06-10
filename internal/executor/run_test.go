@@ -11,7 +11,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"terraform-wrapper/internal/cache"
 	"terraform-wrapper/internal/graph"
 	"terraform-wrapper/internal/stacks"
 )
@@ -72,7 +71,6 @@ func TestRunAllStopsOnError(t *testing.T) {
 		Environment:   "dev",
 		AccountID:     "123",
 		Region:        "eu-west-2",
-		UseCache:      true,
 		TerraformPath: "/tmp/terraform",
 	}
 
@@ -82,7 +80,7 @@ func TestRunAllStopsOnError(t *testing.T) {
 	require.Contains(t, summary.Failed, "b")
 }
 
-func TestPlanStackUsesCache(t *testing.T) {
+func TestPlanStackInvokesRunner(t *testing.T) {
 	root := t.TempDir()
 	factory := newFakeRunnerFactory(root)
 	withFakeRunner(t, factory)
@@ -97,26 +95,13 @@ func TestPlanStackUsesCache(t *testing.T) {
 		Environment:   "dev",
 		AccountID:     "123",
 		Region:        "eu-west-2",
-		UseCache:      true,
 		TerraformPath: "/tmp/terraform",
 	}
 
 	summary, err := PlanStack(context.Background(), stack, opts)
 	require.NoError(t, err)
 	require.Equal(t, 1, summary.Executed)
-	require.Zero(t, summary.Cached)
 	require.Contains(t, factory.records(), "plan:stack")
-
-	planPath, hashPath := cache.PlanFiles(root, opts.Environment, "stack")
-	require.FileExists(t, planPath)
-	require.FileExists(t, hashPath)
-
-	factory.reset()
-	summary, err = PlanStack(context.Background(), stack, opts)
-	require.NoError(t, err)
-	require.Equal(t, 1, summary.Cached)
-	require.Zero(t, summary.Executed)
-	require.Empty(t, factory.records())
 }
 
 // --- test helpers ---
@@ -161,12 +146,6 @@ func (f *fakeRunnerFactory) records() []string {
 	return out
 }
 
-func (f *fakeRunnerFactory) reset() {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.recording = nil
-}
-
 type fakeRunner struct {
 	factory *fakeRunnerFactory
 	root    string
@@ -184,11 +163,8 @@ func (r *fakeRunner) InitOnly(ctx context.Context, stack string, upgrade bool) e
 	return r.factory.record("init", stack, nil)
 }
 
-func (r *fakeRunner) PlanWithOutput(ctx context.Context, stack string, planPath string) error {
-	if err := r.factory.record("plan", stack, nil); err != nil {
-		return err
-	}
-	return os.WriteFile(planPath, []byte("plan"), 0o644)
+func (r *fakeRunner) Plan(ctx context.Context, stack string) error {
+	return r.factory.record("plan", stack, nil)
 }
 
 func (r *fakeRunner) VarFilesFor(stack string) []string {

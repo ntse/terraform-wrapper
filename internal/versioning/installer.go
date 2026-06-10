@@ -166,13 +166,4 @@ func cacheRoot() (string, error) {
 	return filepath.Join(home, ".terraform-wrapper", "versions"), nil
 }
 
-func cachedBinaryPath(v *version.Version) (string, error) {
-	if v == nil {
-		return "", errors.New("version is nil")
-	}
-	root, err := cacheRoot()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(root, v.String(), product.Terraform.BinaryName()), nil
-}
+

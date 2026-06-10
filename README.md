@@ -4,7 +4,7 @@
 
 ## Key Capabilities
 
-- **Terraform version management** – inspects every stack’s `terraform.required_version`, prefers a compatible system binary, and installs a matching version on demand while writing a `.terraform-version.lock.json`.
+- **Terraform version management** – inspects every stack’s `terraform.required_version`, prefers a compatible system binary, and installs a matching version on demand.
 - **Dependency-aware execution** – models stacks through `dependencies.json` files and runs plans/applies/destroys respecting topological order.
 - **Parallel orchestration** – processes independent stacks concurrently with consistent logging and progress feedback.
 - **Superplan generation** – pulls state for every stack, rewrites resources (omitting tag noise), runs plans in a temporary directory, and records a JSON summary of stack-level changes.
@@ -59,8 +59,6 @@ Environment variables alter how binaries are resolved:
 - `TFWRAPPER_FORCE_INSTALL=true` – install a compatible version even if the system meets requirements.
 - `TFWRAPPER_DISABLE_INSTALL=true` – fail if no compatible system binary exists.
 
-Each run updates `.terraform-version.lock.json` to preserve the binary that was executed.
-
 ### Controlling Refresh Behaviour
 
 By default the wrapper refreshes state before every plan. Disable refresh to speed up repeated plans against static environments:
@@ -69,7 +67,7 @@ By default the wrapper refreshes state before every plan. Disable refresh to spe
 terraform-wrapper plan --stack core-services/network --refresh=false
 ```
 
-The flag also applies to `plan-all` and cached plan generation.
+The flag also applies to `plan-all` and individual stack plans.
 
 ### Superplan Output
 

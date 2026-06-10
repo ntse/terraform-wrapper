@@ -74,21 +74,6 @@ func (r *Runner) Plan(ctx context.Context, stackDir string) error {
 	return err
 }
 
-func (r *Runner) PlanWithOutput(ctx context.Context, stackDir, planPath string) error {
-	tf, err := r.newTerraform(stackDir)
-	if err != nil {
-		return err
-	}
-
-	if err := r.init(ctx, tf, stackDir, true); err != nil {
-		return err
-	}
-
-	planOpts := append([]tfexec.PlanOption{tfexec.Out(planPath)}, r.planOptions(stackDir)...)
-	_, err = tf.Plan(ctx, planOpts...)
-	return err
-}
-
 func (r *Runner) Apply(ctx context.Context, stackDir string) error {
 	tf, err := r.newTerraform(stackDir)
 	if err != nil {

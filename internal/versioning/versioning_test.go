@@ -61,25 +61,6 @@ func TestParseTerraformVersion(t *testing.T) {
 	}
 }
 
-func TestLockFileRoundTrip(t *testing.T) {
-	path := filepath.Join(t.TempDir(), ".terraform-version.lock.json")
-
-	lock := LockFile{
-		Version:          "1.8.6",
-		UsedSystemBinary: true,
-		BinaryPath:       "/usr/local/bin/terraform",
-		DetectedFrom:     []string{"./b", "a"},
-	}
-
-	require.NoError(t, WriteLockFile(path, lock))
-
-	read, err := ReadLockFile(path)
-	require.NoError(t, err)
-	require.Equal(t, "1.8.6", read.Version)
-	require.True(t, read.UsedSystemBinary)
-	require.Equal(t, []string{"a", "b"}, read.DetectedFrom)
-}
-
 func TestResolveInstallVersionPrefersPreferred(t *testing.T) {
 	preferred, err := version.NewVersion("1.7.5")
 	require.NoError(t, err)
