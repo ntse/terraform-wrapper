@@ -41,9 +41,7 @@ func (m *Manager) Waiting(stack string, reason string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.states[stack] = StateWaiting
-	if _, err := fmt.Fprintf(os.Stdout, "[wait] %s (%s)\n", stack, reason); err != nil {
-		panic(fmt.Sprintf("progress.Waiting failed to write: %v", err)) //nolint:gocritic // writing to stdout should not fail; panic keeps tests obvious
-	}
+	_, _ = fmt.Fprintf(os.Stdout, "[wait] %s (%s)\n", stack, reason)
 }
 
 func (m *Manager) Start(stack string) {
@@ -51,18 +49,14 @@ func (m *Manager) Start(stack string) {
 	defer m.mu.Unlock()
 	m.states[stack] = StateRunning
 	m.start[stack] = time.Now()
-	if _, err := fmt.Fprintf(os.Stdout, "[run] %s\n", stack); err != nil {
-		panic(fmt.Sprintf("progress.Start failed to write: %v", err)) //nolint:gocritic // writing to stdout should not fail; panic keeps tests obvious
-	}
+	_, _ = fmt.Fprintf(os.Stdout, "[run] %s\n", stack)
 }
 
 func (m *Manager) Skip(stack string, reason string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.states[stack] = StateSkipped
-	if _, err := fmt.Fprintf(os.Stdout, "[skip] %s (%s)\n", stack, reason); err != nil {
-		panic(fmt.Sprintf("progress.Skip failed to write: %v", err)) //nolint:gocritic // writing to stdout should not fail; panic keeps tests obvious
-	}
+	_, _ = fmt.Fprintf(os.Stdout, "[skip] %s (%s)\n", stack, reason)
 }
 
 func (m *Manager) Succeed(stack string) {
@@ -70,9 +64,7 @@ func (m *Manager) Succeed(stack string) {
 	defer m.mu.Unlock()
 	m.states[stack] = StateSucceeded
 	dur := time.Since(m.start[stack])
-	if _, err := fmt.Fprintf(os.Stdout, "[done] %s (%.1fs)\n", stack, dur.Seconds()); err != nil {
-		panic(fmt.Sprintf("progress.Succeed failed to write: %v", err)) //nolint:gocritic // writing to stdout should not fail; panic keeps tests obvious
-	}
+	_, _ = fmt.Fprintf(os.Stdout, "[done] %s (%.1fs)\n", stack, dur.Seconds())
 }
 
 func (m *Manager) Fail(stack string, err error) {
@@ -80,7 +72,5 @@ func (m *Manager) Fail(stack string, err error) {
 	defer m.mu.Unlock()
 	m.states[stack] = StateFailed
 	dur := time.Since(m.start[stack])
-	if _, writeErr := fmt.Fprintf(os.Stdout, "[fail] %s (%.1fs): %v\n", stack, dur.Seconds(), err); writeErr != nil {
-		panic(fmt.Sprintf("progress.Fail failed to write: %v", writeErr)) //nolint:gocritic
-	}
+	_, _ = fmt.Fprintf(os.Stdout, "[fail] %s (%.1fs)\n", stack, dur.Seconds())
 }

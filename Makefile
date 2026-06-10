@@ -22,12 +22,17 @@ test:
 	$(GO) test ./...
 
 test-unit:
-	$(GO) test -count=1 ./internal/...
+	$(GO) test -count=1 -short ./internal/...
 
 test-integration:
-	$(GO) test -count=1 ./integration/...
+	$(GO) test -count=1 -run Integration ./internal/executor/...
 
 fmt:
 	$(GO) fmt ./...
 
-.PHONY: all build install test test-unit test-integration fmt
+clean:
+	@echo "Removing .terraform directories and lock files"
+	@find . -type d -name .terraform -prune -exec rm -rf {} +
+	@find . -type f -name .terraform.lock.hcl -delete
+
+.PHONY: all build install test test-unit test-integration fmt clean

@@ -8,11 +8,11 @@ import (
 	"terraform-wrapper/internal/executor"
 )
 
-func newDestroyCommand() *cobra.Command {
+func newRefreshCommand() *cobra.Command {
 	var stackArg string
 	cmd := &cobra.Command{
-		Use:   "destroy",
-		Short: "Run terraform destroy for a specific stack",
+		Use:   "refresh",
+		Short: "Run terraform refresh for a specific stack",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			g, index, err := loadGraphData()
@@ -35,12 +35,12 @@ func newDestroyCommand() *cobra.Command {
 			}
 
 			opts := executorOptions(res.BinaryPath, resolvedVersion)
-			summary, err := executor.DestroyStack(ctx, stack, opts)
+			summary, err := executor.RefreshStack(ctx, stack, opts)
 			if err != nil {
 				return err
 			}
-			printSummary("destroy", summary)
-			fmt.Printf("stack destroyed: %s\n", rel)
+			printSummary("refresh", summary)
+			fmt.Printf("stack refreshed: %s\n", rel)
 			return nil
 		},
 	}
@@ -49,10 +49,10 @@ func newDestroyCommand() *cobra.Command {
 	return cmd
 }
 
-func newDestroyAllCommand() *cobra.Command {
+func newRefreshAllCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "destroy-all",
-		Short: "Destroy all stacks in reverse dependency order",
+		Use:   "refresh-all",
+		Short: "Refresh state for all stacks in dependency order",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			g, _, err := loadGraphData()
@@ -71,11 +71,11 @@ func newDestroyAllCommand() *cobra.Command {
 			}
 
 			opts := executorOptions(res.BinaryPath, resolvedVersion)
-			summary, err := executor.DestroyAll(ctx, g, opts)
+			summary, err := executor.RefreshAll(ctx, g, opts)
 			if err != nil {
 				return err
 			}
-			printSummary("destroy-all", summary)
+			printSummary("refresh-all", summary)
 			return nil
 		},
 	}

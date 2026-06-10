@@ -48,8 +48,10 @@ Common commands:
 | `terraform-wrapper init --stack=<path>` | Initialise a specific stack.                      |
 | `terraform-wrapper plan --stack=<path>` | Run an individual stack plan.                     |
 | `terraform-wrapper apply --stack=<path>` | Apply a stack with auto-approval configured.      |
+| `terraform-wrapper refresh --stack=<path>` | Refresh a single stack's state.                |
 | `terraform-wrapper plan-all`  | Generate the dependency-aware superplan and summary.     |
 | `terraform-wrapper apply-all` | Apply every stack in dependency order.                   |
+| `terraform-wrapper refresh-all` | Refresh state for every stack in dependency order.     |
 
 ### Terraform Version Resolution
 

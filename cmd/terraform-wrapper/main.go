@@ -1,13 +1,15 @@
 package main
 
 import (
-	"log"
+	"fmt"
+	"os"
 
 	"terraform-wrapper/cmd/terraform-wrapper/commands"
 )
 
 func main() {
 	if err := commands.Execute(); err != nil {
-		log.Fatalf("error: %v", err)
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
 	}
 }

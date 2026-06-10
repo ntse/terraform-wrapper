@@ -13,7 +13,7 @@ func newBootstrapCommand() *cobra.Command {
 		Use:   "bootstrap",
 		Short: "Bootstrap backend infrastructure",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx := contextWithCmd(cmd)
+			ctx := cmd.Context()
 			g, _, err := loadGraphData()
 			if err != nil {
 				return err

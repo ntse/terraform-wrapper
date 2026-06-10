@@ -167,8 +167,8 @@ func (r *fakeRunner) Plan(ctx context.Context, stack string) error {
 	return r.factory.record("plan", stack, nil)
 }
 
-func (r *fakeRunner) VarFilesFor(stack string) []string {
-	return nil
+func (r *fakeRunner) Refresh(ctx context.Context, stack string) error {
+	return r.factory.record("refresh", stack, nil)
 }
 
 func withFakeRunner(t *testing.T, factory *fakeRunnerFactory) {

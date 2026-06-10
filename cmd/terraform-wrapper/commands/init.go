@@ -14,7 +14,7 @@ func newInitCommand() *cobra.Command {
 		Use:   "init",
 		Short: "Run terraform init for a specific stack",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx := contextWithCmd(cmd)
+			ctx := cmd.Context()
 			g, index, err := loadGraphData()
 			if err != nil {
 				return err
@@ -54,7 +54,7 @@ func newInitAllCommand() *cobra.Command {
 		Use:   "init-all",
 		Short: "Initialise all stacks",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx := contextWithCmd(cmd)
+			ctx := cmd.Context()
 			g, _, err := loadGraphData()
 			if err != nil {
 				return err

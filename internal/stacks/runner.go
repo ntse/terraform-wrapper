@@ -100,6 +100,19 @@ func (r *Runner) Destroy(ctx context.Context, stackDir string) error {
 	return tf.Destroy(ctx, r.destroyOptions(stackDir)...)
 }
 
+func (r *Runner) Refresh(ctx context.Context, stackDir string) error {
+	tf, err := r.newTerraform(stackDir)
+	if err != nil {
+		return err
+	}
+
+	if err := r.init(ctx, tf, stackDir, true); err != nil {
+		return err
+	}
+
+	return tf.Refresh(ctx, r.refreshOptions(stackDir)...)
+}
+
 func (r *Runner) newTerraform(stackDir string) (*tfexec.Terraform, error) {
 	tf, err := tfexec.NewTerraform(stackDir, r.terraformPath)
 	if err != nil {
@@ -162,6 +175,14 @@ func (r *Runner) destroyOptions(stackDir string) []tfexec.DestroyOption {
 	return opts
 }
 
+func (r *Runner) refreshOptions(stackDir string) []tfexec.RefreshCmdOption {
+	var opts []tfexec.RefreshCmdOption
+	for _, vf := range r.varFiles(stackDir) {
+		opts = append(opts, tfexec.VarFile(vf))
+	}
+	return opts
+}
+
 func (r *Runner) backendConfig(stackDir string) map[string]string {
 	stackName := filepath.Base(stackDir)
 	keyParts := []string{r.environment, stackName, "terraform.tfstate"}
@@ -182,10 +203,6 @@ func (r *Runner) varFiles(stackDir string) []string {
 
 func (r *Runner) BackendConfig(stackDir string) map[string]string {
 	return r.backendConfig(stackDir)
-}
-
-func (r *Runner) VarFilesFor(stackDir string) []string {
-	return r.varFiles(stackDir)
 }
 
 func VarFiles(root, stackDir, environment string) []string {

@@ -15,7 +15,7 @@ func newPlanCommand() *cobra.Command {
 		Use:   "plan",
 		Short: "Run terraform plan for a single stack",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx := contextWithCmd(cmd)
+			ctx := cmd.Context()
 			g, index, err := loadGraphData()
 			if err != nil {
 				return err
@@ -56,7 +56,7 @@ func newPlanAllCommand() *cobra.Command {
 		Use:   "plan-all",
 		Short: "Plan all stacks respecting dependencies",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx := contextWithCmd(cmd)
+			ctx := cmd.Context()
 			g, _, err := loadGraphData()
 			if err != nil {
 				return err
