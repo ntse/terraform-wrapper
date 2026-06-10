@@ -22,6 +22,10 @@ func InitAll(ctx context.Context, g graph.Graph, opts Options) (*Summary, error)
 	return RunAll(ctx, g, opts, OperationInit)
 }
 
+func RefreshAll(ctx context.Context, g graph.Graph, opts Options) (*Summary, error) {
+	return RunAll(ctx, g, opts, OperationRefresh)
+}
+
 func ApplyStack(ctx context.Context, stack *graph.Stack, opts Options) (*Summary, error) {
 	return runSingle(ctx, stack, opts, OperationApply)
 }
@@ -32,6 +36,10 @@ func DestroyStack(ctx context.Context, stack *graph.Stack, opts Options) (*Summa
 
 func InitStack(ctx context.Context, stack *graph.Stack, opts Options) (*Summary, error) {
 	return runSingle(ctx, stack, opts, OperationInit)
+}
+
+func RefreshStack(ctx context.Context, stack *graph.Stack, opts Options) (*Summary, error) {
+	return runSingle(ctx, stack, opts, OperationRefresh)
 }
 
 func runSingle(ctx context.Context, stack *graph.Stack, opts Options, op Operation) (*Summary, error) {
@@ -75,6 +83,8 @@ func runSingle(ctx context.Context, stack *graph.Stack, opts Options, op Operati
 		execErr = runner.Destroy(ctx, stack.Path)
 	case OperationInit:
 		execErr = runner.InitOnly(ctx, stack.Path, true)
+	case OperationRefresh:
+		execErr = runner.Refresh(ctx, stack.Path)
 	default:
 		execErr = fmt.Errorf("unknown operation")
 	}

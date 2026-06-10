@@ -14,7 +14,7 @@ func newApplyCommand() *cobra.Command {
 		Use:   "apply",
 		Short: "Run terraform apply for a specific stack",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx := contextWithCmd(cmd)
+			ctx := cmd.Context()
 			g, index, err := loadGraphData()
 			if err != nil {
 				return err
@@ -54,7 +54,7 @@ func newApplyAllCommand() *cobra.Command {
 		Use:   "apply-all",
 		Short: "Apply all stacks in dependency order",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx := contextWithCmd(cmd)
+			ctx := cmd.Context()
 			g, _, err := loadGraphData()
 			if err != nil {
 				return err

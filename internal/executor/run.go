@@ -13,13 +13,6 @@ import (
 	"terraform-wrapper/internal/stacks"
 )
 
-type ResultStatus int
-
-const (
-	StatusExecuted ResultStatus = iota
-	StatusSkipped
-)
-
 var newRunner = func(ctx context.Context, opts stacks.RunnerOptions) (runner, error) {
 	return stacks.NewRunner(ctx, opts)
 }
@@ -183,7 +176,7 @@ func (e *executor) runLayer(layer []string, op Operation) (Summary, error) {
 
 			e.progress.Start(rel)
 
-			status, err := e.executeStack(ctx, stack, op)
+			err := e.executeStack(ctx, stack, op)
 
 			mu.Lock()
 			defer mu.Unlock()
@@ -196,14 +189,8 @@ func (e *executor) runLayer(layer []string, op Operation) (Summary, error) {
 				}
 				return
 			}
-			switch status {
-			case StatusSkipped:
-				e.progress.Skip(rel, "skipped")
-				summary.Skipped++
-			default:
-				e.progress.Succeed(rel)
-				summary.Executed++
-			}
+			e.progress.Succeed(rel)
+			summary.Executed++
 		}(rel, stack)
 	}
 
@@ -214,7 +201,7 @@ func (e *executor) runLayer(layer []string, op Operation) (Summary, error) {
 	return summary, firstErr
 }
 
-func (e *executor) executeStack(ctx context.Context, stack *graph.Stack, op Operation) (ResultStatus, error) {
+func (e *executor) executeStack(ctx context.Context, stack *graph.Stack, op Operation) error {
 	runner, err := newRunner(ctx, stacks.RunnerOptions{
 		RootDir:        e.options.RootDir,
 		Environment:    e.options.Environment,
@@ -224,19 +211,21 @@ func (e *executor) executeStack(ctx context.Context, stack *graph.Stack, op Oper
 		DisableRefresh: e.options.DisableRefresh,
 	})
 	if err != nil {
-		return StatusExecuted, err
+		return err
 	}
 
 	switch op {
 	case OperationPlan:
-		return StatusExecuted, runner.Plan(ctx, stack.Path)
+		return runner.Plan(ctx, stack.Path)
 	case OperationApply:
-		return StatusExecuted, runner.Apply(ctx, stack.Path)
+		return runner.Apply(ctx, stack.Path)
 	case OperationDestroy:
-		return StatusExecuted, runner.Destroy(ctx, stack.Path)
+		return runner.Destroy(ctx, stack.Path)
 	case OperationInit:
-		return StatusExecuted, runner.InitOnly(ctx, stack.Path, true)
+		return runner.InitOnly(ctx, stack.Path, true)
+	case OperationRefresh:
+		return runner.Refresh(ctx, stack.Path)
 	default:
-		return StatusExecuted, fmt.Errorf("unknown operation")
+		return fmt.Errorf("unknown operation")
 	}
 }

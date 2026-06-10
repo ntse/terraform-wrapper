@@ -32,14 +32,16 @@ var (
 var wrapperVersion = "dev-1"
 
 var rootCmd = &cobra.Command{
-	Use:     "terraform-wrapper",
-	Short:   "Terraform orchestration toolkit",
-	Version: wrapperVersion,
+	Use:           "terraform-wrapper",
+	Short:         "Terraform orchestration toolkit",
+	Version:       wrapperVersion,
+	SilenceErrors: true,
+	SilenceUsage:  true,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		if envAlias != "" {
 			environment = envAlias
 		}
-		if environment == "" {
+		if environment == "" {	
 			return fmt.Errorf("environment must be specified via --environment or --env")
 		}
 		if parallelism <= 0 {
@@ -78,16 +80,14 @@ func init() {
 	rootCmd.AddCommand(newApplyAllCommand())
 	rootCmd.AddCommand(newDestroyAllCommand())
 	rootCmd.AddCommand(newInitAllCommand())
+	rootCmd.AddCommand(newRefreshCommand())
+	rootCmd.AddCommand(newRefreshAllCommand())
 	rootCmd.AddCommand(newCleanCommand())
 	rootCmd.AddCommand(newCleanAllCommand())
 }
 
 func Execute() error {
 	return rootCmd.Execute()
-}
-
-func contextWithCmd(cmd *cobra.Command) context.Context {
-	return cmd.Context()
 }
 
 func filepathRelSafe(base, target string) (string, error) {
@@ -106,11 +106,11 @@ func printSummary(label string, summary *executor.Summary) {
 	if summary == nil {
 		return
 	}
-	fmt.Printf("[%s] executed=%d skipped=%d\n", label, summary.Executed, summary.Skipped)
+	fmt.Printf("[%s] executed=%d\n", label, summary.Executed)
 	if len(summary.Failed) > 0 {
-		fmt.Println("Failures:")
-		for stack, err := range summary.Failed {
-			fmt.Printf("  %s: %v\n", stack, err)
+		fmt.Println("Failed stacks:")
+		for stack := range summary.Failed {
+			fmt.Printf("  %s\n", stack)
 		}
 	}
 }
@@ -179,6 +179,7 @@ func envBool(key string) bool {
 	}
 	b, err := strconv.ParseBool(raw)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: %s=%q is not a valid boolean, ignoring\n", key, raw)
 		return false
 	}
 	return b

@@ -12,6 +12,7 @@ const (
 	OperationPlan
 	OperationApply
 	OperationDestroy
+	OperationRefresh
 )
 
 type runner interface {
@@ -19,7 +20,7 @@ type runner interface {
 	Destroy(context.Context, string) error
 	InitOnly(context.Context, string, bool) error
 	Plan(context.Context, string) error
-	VarFilesFor(string) []string
+	Refresh(context.Context, string) error
 }
 
 type Options struct {

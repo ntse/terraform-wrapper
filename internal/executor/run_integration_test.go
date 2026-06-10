@@ -136,7 +136,7 @@ func (r *integrationRunner) Plan(ctx context.Context, stack string) error {
 	}
 
 	opts := []tfexec.PlanOption{tfexec.Lock(false), tfexec.Refresh(false)}
-	for _, vf := range r.VarFilesFor(stack) {
+	for _, vf := range stacks.VarFiles(r.root, stack, r.environment) {
 		opts = append(opts, tfexec.VarFile(vf))
 	}
 
@@ -144,8 +144,21 @@ func (r *integrationRunner) Plan(ctx context.Context, stack string) error {
 	return err
 }
 
-func (r *integrationRunner) VarFilesFor(stack string) []string {
-	return stacks.VarFiles(r.root, stack, r.environment)
+func (r *integrationRunner) Refresh(ctx context.Context, stack string) error {
+	tf, err := r.newTerraform(stack)
+	if err != nil {
+		return err
+	}
+
+	if err := tf.Init(ctx, tfexec.Backend(false)); err != nil {
+		return err
+	}
+
+	opts := []tfexec.RefreshCmdOption{tfexec.Lock(false)}
+	for _, vf := range stacks.VarFiles(r.root, stack, r.environment) {
+		opts = append(opts, tfexec.VarFile(vf))
+	}
+	return tf.Refresh(ctx, opts...)
 }
 
 func (r *integrationRunner) newTerraform(stack string) (*tfexec.Terraform, error) {

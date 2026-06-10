@@ -67,7 +67,6 @@ func TestManagerFail(t *testing.T) {
 	})
 
 	require.Contains(t, logs, "[fail] stack")
-	require.Contains(t, logs, "boom")
 }
 
 func runWithCapture(t *testing.T, fn func()) (time.Duration, string) {

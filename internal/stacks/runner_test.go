@@ -23,7 +23,7 @@ func TestVarFilesAndBackendConfig(t *testing.T) {
 
 	r := &Runner{root: root, environment: "dev", accountID: "123", region: "eu-west-2"}
 
-	files := r.VarFilesFor(stackDir)
+	files := r.varFiles(stackDir)
 	require.Contains(t, files, filepath.Join(root, "globals.tfvars"))
 	require.Contains(t, files, filepath.Join(root, "environment", "dev.tfvars"))
 	require.Contains(t, files, filepath.Join(stackDir, "tfvars", "dev.tfvars"))
