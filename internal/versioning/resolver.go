@@ -55,9 +55,9 @@ func ResolveTerraformBinary(ctx context.Context, opts ResolveOptions) (*ResolveR
 	}
 
 	stackNames := sortedKeys(constraintsByStack)
-	fmt.Fprintln(stdout, "Detected Terraform version requirements:")
+	_, _ = fmt.Fprintln(stdout, "Detected Terraform version requirements:")
 	for _, stack := range stackNames {
-		fmt.Fprintf(stdout, "- %s: %s\n", stack, constraintsByStack[stack])
+		_, _ = fmt.Fprintf(stdout, "- %s: %s\n", stack, constraintsByStack[stack])
 	}
 
 	constraintStrings := make([]string, 0, len(stackNames))
@@ -75,7 +75,7 @@ func ResolveTerraformBinary(ctx context.Context, opts ResolveOptions) (*ResolveR
 
 	systemVersion, systemPath, systemErr := DetectSystemTerraformVersion(ctx)
 	if systemErr != nil && !errors.Is(systemErr, ErrTerraformNotFound) {
-		fmt.Fprintf(stderr, "warning: failed to detect system Terraform version: %v\n", systemErr)
+		_, _ = fmt.Fprintf(stderr, "warning: failed to detect system Terraform version: %v\n", systemErr)
 		systemErr = ErrTerraformNotFound
 	}
 
@@ -84,14 +84,14 @@ func ResolveTerraformBinary(ctx context.Context, opts ResolveOptions) (*ResolveR
 			return nil, fmt.Errorf("system terraform binary required but not found: %w", systemErr)
 		}
 		if opts.PinnedVersion != nil && !systemVersion.Equal(opts.PinnedVersion) {
-			fmt.Fprintf(stderr, "warning: system terraform version %s differs from pinned %s\n", systemVersion, opts.PinnedVersion)
+			_, _ = fmt.Fprintf(stderr, "warning: system terraform version %s differs from pinned %s\n", systemVersion, opts.PinnedVersion)
 		}
 		if ok, err := IsVersionCompatible(systemVersion, constraintStrings); err != nil {
 			return nil, err
 		} else if !ok {
-			fmt.Fprintf(stderr, "warning: system terraform %s does not satisfy all constraints\n", systemVersion)
+			_, _ = fmt.Fprintf(stderr, "warning: system terraform %s does not satisfy all constraints\n", systemVersion)
 		} else {
-			fmt.Fprintf(stdout, "System Terraform v%s detected — satisfies all constraints.\n", systemVersion)
+			_, _ = fmt.Fprintf(stdout, "System Terraform v%s detected — satisfies all constraints.\n", systemVersion)
 		}
 		return finalizeResolution(stdout, systemVersion, systemPath, true)
 	}
@@ -101,7 +101,7 @@ func ResolveTerraformBinary(ctx context.Context, opts ResolveOptions) (*ResolveR
 		if err != nil {
 			return nil, err
 		}
-		fmt.Fprintf(stdout, "Installing Terraform v%s (forced install).\n", versionToInstall)
+		_, _ = fmt.Fprintf(stdout, "Installing Terraform v%s (forced install).\n", versionToInstall)
 		path, err := ensureVersionInstalled(ctx, versionToInstall)
 		if err != nil {
 			return nil, err
@@ -115,15 +115,15 @@ func ResolveTerraformBinary(ctx context.Context, opts ResolveOptions) (*ResolveR
 			return nil, err
 		}
 		if ok {
-			fmt.Fprintf(stdout, "System Terraform v%s detected — satisfies all constraints.\n", systemVersion)
+			_, _ = fmt.Fprintf(stdout, "System Terraform v%s detected — satisfies all constraints.\n", systemVersion)
 			return finalizeResolution(stdout, systemVersion, systemPath, true)
 		}
-		fmt.Fprintf(stdout, "System Terraform v%s does not satisfy all constraints.\n", systemVersion)
+		_, _ = fmt.Fprintf(stdout, "System Terraform v%s does not satisfy all constraints.\n", systemVersion)
 		if opts.DisableInstall {
 			return nil, fmt.Errorf("system terraform %s incompatible and installation is disabled", systemVersion)
 		}
 	} else if errors.Is(systemErr, ErrTerraformNotFound) {
-		fmt.Fprintln(stdout, "System Terraform binary not found.")
+		_, _ = fmt.Fprintln(stdout, "System Terraform binary not found.")
 		if opts.DisableInstall {
 			return nil, fmt.Errorf("terraform binary not found and installation disabled")
 		}
@@ -138,9 +138,9 @@ func ResolveTerraformBinary(ctx context.Context, opts ResolveOptions) (*ResolveR
 		return nil, err
 	}
 	if systemErr == nil {
-		fmt.Fprintf(stdout, "Installing Terraform v%s (latest compatible).\n", versionToInstall)
+		_, _ = fmt.Fprintf(stdout, "Installing Terraform v%s (latest compatible).\n", versionToInstall)
 	} else {
-		fmt.Fprintf(stdout, "Installing Terraform v%s...\n", versionToInstall)
+		_, _ = fmt.Fprintf(stdout, "Installing Terraform v%s...\n", versionToInstall)
 	}
 	path, err := ensureVersionInstalled(ctx, versionToInstall)
 	if err != nil {
@@ -158,11 +158,11 @@ func finalizeResolution(stdout io.Writer, version *version.Version, binaryPath s
 	}
 
 	if usedSystem {
-		fmt.Fprintf(stdout, "Using system binary: %s\n", binaryPath)
+		_, _ = fmt.Fprintf(stdout, "Using system binary: %s\n", binaryPath)
 	} else {
-		fmt.Fprintf(stdout, "Using installed binary: %s\n", binaryPath)
+		_, _ = fmt.Fprintf(stdout, "Using installed binary: %s\n", binaryPath)
 	}
-	fmt.Fprintf(stdout, "Resolved version: %s\n", version.String())
+	_, _ = fmt.Fprintf(stdout, "Resolved version: %s\n", version.String())
 
 	return &ResolveResult{
 		BinaryPath:       binaryPath,
