@@ -41,7 +41,7 @@ var rootCmd = &cobra.Command{
 		if envAlias != "" {
 			environment = envAlias
 		}
-		if environment == "" {
+		if environment == "" {	
 			return fmt.Errorf("environment must be specified via --environment or --env")
 		}
 		if parallelism <= 0 {
