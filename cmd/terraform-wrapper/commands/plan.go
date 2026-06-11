@@ -52,6 +52,7 @@ func newPlanCommand() *cobra.Command {
 }
 
 func newPlanAllCommand() *cobra.Command {
+	var superplanDir string
 	cmd := &cobra.Command{
 		Use:   "plan-all",
 		Short: "Plan all stacks respecting dependencies",
@@ -83,5 +84,6 @@ func newPlanAllCommand() *cobra.Command {
 			})
 		},
 	}
+	cmd.Flags().StringVar(&superplanDir, "out", ".superplan", "directory for generated superplan artifacts")
 	return cmd
 }

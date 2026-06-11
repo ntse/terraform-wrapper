@@ -106,7 +106,7 @@ func (r *Runner) Refresh(ctx context.Context, stackDir string) error {
 		return err
 	}
 
-	if err := r.init(ctx, tf, stackDir, true); err != nil {
+	if err := r.ensureInit(ctx, tf, stackDir); err != nil {
 		return err
 	}
 
@@ -171,6 +171,9 @@ func (r *Runner) planOptions(stackDir string) []tfexec.PlanOption {
 
 func (r *Runner) applyOptions(stackDir string) []tfexec.ApplyOption {
 	var opts []tfexec.ApplyOption
+	if r.disableRefresh {
+		opts = append(opts, tfexec.Refresh(false))
+	}
 	for _, vf := range r.varFiles(stackDir) {
 		opts = append(opts, tfexec.VarFile(vf))
 	}
@@ -179,6 +182,9 @@ func (r *Runner) applyOptions(stackDir string) []tfexec.ApplyOption {
 
 func (r *Runner) destroyOptions(stackDir string) []tfexec.DestroyOption {
 	var opts []tfexec.DestroyOption
+	if r.disableRefresh {
+		opts = append(opts, tfexec.Refresh(false))
+	}
 	for _, vf := range r.varFiles(stackDir) {
 		opts = append(opts, tfexec.VarFile(vf))
 	}

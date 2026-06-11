@@ -10,10 +10,14 @@ import (
 
 func newApplyCommand() *cobra.Command {
 	var stackArg string
+	var autoApprove bool
 	cmd := &cobra.Command{
 		Use:   "apply",
 		Short: "Run terraform apply for a specific stack",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if !autoApprove {
+				return fmt.Errorf("apply requires --auto-approve; pass this flag to confirm you intend to apply changes")
+			}
 			ctx := cmd.Context()
 			g, index, err := loadGraphData()
 			if err != nil {
@@ -45,15 +49,20 @@ func newApplyCommand() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&stackArg, "stack", "", "stack name or path")
+	cmd.Flags().BoolVar(&autoApprove, "auto-approve", false, "skip confirmation and apply immediately")
 	_ = cmd.MarkFlagRequired("stack")
 	return cmd
 }
 
 func newApplyAllCommand() *cobra.Command {
+	var autoApprove bool
 	cmd := &cobra.Command{
 		Use:   "apply-all",
 		Short: "Apply all stacks in dependency order",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if !autoApprove {
+				return fmt.Errorf("apply-all requires --auto-approve; pass this flag to confirm you intend to apply all changes")
+			}
 			ctx := cmd.Context()
 			g, _, err := loadGraphData()
 			if err != nil {
@@ -79,5 +88,6 @@ func newApplyAllCommand() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&autoApprove, "auto-approve", false, "skip confirmation and apply all stacks immediately")
 	return cmd
 }
