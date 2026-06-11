@@ -10,10 +10,14 @@ import (
 
 func newDestroyCommand() *cobra.Command {
 	var stackArg string
+	var autoApprove bool
 	cmd := &cobra.Command{
 		Use:   "destroy",
 		Short: "Run terraform destroy for a specific stack",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if !autoApprove {
+				return fmt.Errorf("destroy requires --auto-approve; pass this flag to confirm you intend to destroy resources")
+			}
 			ctx := cmd.Context()
 			g, index, err := loadGraphData()
 			if err != nil {
@@ -45,15 +49,20 @@ func newDestroyCommand() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&stackArg, "stack", "", "stack name or path")
+	cmd.Flags().BoolVar(&autoApprove, "auto-approve", false, "skip confirmation and destroy immediately")
 	_ = cmd.MarkFlagRequired("stack")
 	return cmd
 }
 
 func newDestroyAllCommand() *cobra.Command {
+	var autoApprove bool
 	cmd := &cobra.Command{
 		Use:   "destroy-all",
 		Short: "Destroy all stacks in reverse dependency order",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if !autoApprove {
+				return fmt.Errorf("destroy-all requires --auto-approve; pass this flag to confirm you intend to destroy all resources")
+			}
 			ctx := cmd.Context()
 			g, _, err := loadGraphData()
 			if err != nil {
@@ -79,5 +88,6 @@ func newDestroyAllCommand() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&autoApprove, "auto-approve", false, "skip confirmation and destroy all stacks immediately")
 	return cmd
 }

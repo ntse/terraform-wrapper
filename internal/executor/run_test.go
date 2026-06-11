@@ -104,6 +104,61 @@ func TestPlanStackInvokesRunner(t *testing.T) {
 	require.Contains(t, factory.records(), "plan:stack")
 }
 
+func TestRefreshStackInvokesRunner(t *testing.T) {
+	root := t.TempDir()
+	factory := newFakeRunnerFactory(root)
+	withFakeRunner(t, factory)
+
+	stackDir := filepath.Join(root, "stack")
+	require.NoError(t, os.MkdirAll(stackDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(stackDir, "main.tf"), []byte("terraform {}"), 0o644))
+
+	stack := &graph.Stack{Path: stackDir}
+	opts := Options{
+		RootDir:       root,
+		Environment:   "dev",
+		AccountID:     "123",
+		Region:        "eu-west-2",
+		TerraformPath: "/tmp/terraform",
+	}
+
+	summary, err := RefreshStack(context.Background(), stack, opts)
+	require.NoError(t, err)
+	require.Equal(t, 1, summary.Executed)
+	require.Contains(t, factory.records(), "refresh:stack")
+}
+
+func TestRefreshAllRespectsDependencies(t *testing.T) {
+	root := t.TempDir()
+	factory := newFakeRunnerFactory(root)
+	withFakeRunner(t, factory)
+
+	stackA := filepath.Join(root, "a")
+	stackB := filepath.Join(root, "b")
+
+	g := graph.Graph{
+		stackA: {Path: stackA},
+		stackB: {Path: stackB, Dependencies: []string{stackA}},
+	}
+
+	opts := Options{
+		RootDir:       root,
+		Environment:   "dev",
+		AccountID:     "123456789012",
+		Region:        "eu-west-2",
+		Parallelism:   2,
+		TerraformPath: "/tmp/terraform",
+	}
+
+	summary, err := RunAll(context.Background(), g, opts, OperationRefresh)
+	require.NoError(t, err)
+	require.Equal(t, 2, summary.Executed)
+	require.Nil(t, summary.Failed)
+
+	index := indexOf(factory.records())
+	require.Less(t, index["refresh:a"], index["refresh:b"])
+}
+
 // --- test helpers ---
 
 type fakeRunnerFactory struct {

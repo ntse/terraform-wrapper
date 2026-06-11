@@ -24,7 +24,6 @@ var (
 	terraformVersion string
 	accountID        string
 	region           string
-	superplanDir     string
 	parallelism      int
 	refreshState     bool
 )
@@ -67,9 +66,8 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&envAlias, "env", "", "environment name alias")
 	rootCmd.PersistentFlags().StringVar(&accountID, "account-id", "", "AWS account ID (defaults to caller identity)")
 	rootCmd.PersistentFlags().StringVar(&region, "region", "eu-west-2", "AWS region")
-	rootCmd.PersistentFlags().StringVar(&superplanDir, "out", ".superplan", "directory for generated superplan artifacts")
 	rootCmd.PersistentFlags().IntVar(&parallelism, "parallelism", 4, "number of stacks to run concurrently")
-	rootCmd.PersistentFlags().BoolVar(&refreshState, "refresh", true, "refresh state before planning")
+	rootCmd.PersistentFlags().BoolVar(&refreshState, "refresh", true, "refresh state before each operation")
 
 	rootCmd.AddCommand(newBootstrapCommand())
 	rootCmd.AddCommand(newPlanCommand())
